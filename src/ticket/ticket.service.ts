@@ -1,0 +1,263 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { Ticket } from '../entities/ticket.entity';
+import { Project } from '../entities/project.entity';
+import { Status } from '../entities/status.entity';
+import { WorkspaceMember } from '../entities/workspace-member.entity';
+import { User } from '../entities/user.entity';
+import { CreateTicketDto } from './dto/create-ticket.dto';
+import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { TicketPriority, TicketStatus, StatusCategory } from '../entities/enums';
+
+@Injectable()
+export class TicketService {
+  constructor(
+    @InjectRepository(Ticket)
+    private readonly ticketRepository: Repository<Ticket>,
+    @InjectRepository(Project)
+    private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Status)
+    private readonly statusRepository: Repository<Status>,
+    @InjectRepository(WorkspaceMember)
+    private readonly workspaceMemberRepository: Repository<WorkspaceMember>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
+
+  async createTicket(
+    projectId: string,
+    userId: string,
+    dto: CreateTicketDto,
+  ): Promise<{ success: true; data: Ticket }> {
+    // Validate project exists
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // Validate user belongs to project's workspace
+    await this.validateUserInWorkspace(userId, project.workspaceId);
+
+    // Validate assignees if provided and belong to workspace
+    let assignees = [] as User[];
+    if (dto.assigneeIds && dto.assigneeIds.length > 0) {
+      for (const assigneeId of dto.assigneeIds) {
+        await this.validateAssigneeInWorkspace(assigneeId, project.workspaceId);
+      }
+
+      assignees = await this.userRepository.find({
+        where: { id: In(dto.assigneeIds) },
+      });
+
+      if (assignees.length !== dto.assigneeIds.length) {
+        throw new BadRequestException('One or more assignees were not found');
+      }
+    }
+
+    // Get default status (TODO)
+    const todoStatus = await this.statusRepository.findOne({
+      where: { category: StatusCategory.TODO, projectId },
+    });
+
+    if (!todoStatus) {
+      throw new BadRequestException('Default status (TODO) not configured');
+    }
+
+    // Generate ticket key
+    const ticketKey = await this.generateTicketKey(projectId, project.key);
+
+    // Create ticket
+    const ticket = this.ticketRepository.create({
+      projectId,
+      ticketKey,
+      title: dto.title,
+      description: dto.description || null,
+      statusId: todoStatus.id,
+      priority: dto.priority || TicketPriority.MEDIUM,
+      createdById: userId,
+      assignees,
+    });
+
+    const savedTicket = await this.ticketRepository.save(ticket);
+
+    // Return ticket with related data populated
+    const ticketWithRelations = await this.ticketRepository.findOne({
+      where: { id: savedTicket.id },
+      relations: ['status', 'project', 'createdBy', 'assignees'],
+    });
+
+    return {
+      success: true,
+      data: ticketWithRelations!,
+    };
+  }
+
+  async getTickets(
+    userId: string,
+    projectId: string,
+    sprintId?: string,
+  ): Promise<Ticket[]> {
+    // Validate project exists and user has access
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    await this.validateUserInWorkspace(userId, project.workspaceId);
+
+    // Build query
+    let query = this.ticketRepository
+      .createQueryBuilder('ticket')
+      .where('ticket.projectId = :projectId', { projectId });
+
+    if (sprintId) {
+      query = query.andWhere('ticket.sprintId = :sprintId', { sprintId });
+    } else {
+      // Backlog (no sprint)
+      query = query.andWhere('ticket.sprintId IS NULL');
+    }
+
+    const tickets = await query
+      .orderBy('ticket.createdAt', 'ASC')
+      .leftJoinAndSelect('ticket.status', 'status')
+      .leftJoinAndSelect('ticket.project', 'project')
+      .leftJoinAndSelect('ticket.createdBy', 'createdBy')
+      .leftJoinAndSelect('ticket.assignees', 'assignees')
+      .getMany();
+
+    return tickets;
+  }
+
+  async updateTicket(
+    ticketId: string,
+    userId: string,
+    dto: UpdateTicketDto,
+  ): Promise<Ticket> {
+    // Validate ticket exists
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    // Validate user has access to workspace
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    // Validate assignee if provided
+    if (dto.assigneeIds !== undefined) {
+      if (dto.assigneeIds.length > 0) {
+        for (const assigneeId of dto.assigneeIds) {
+          await this.validateAssigneeInWorkspace(assigneeId, ticket.project.workspaceId);
+        }
+
+        const assignees = await this.userRepository.find({
+          where: { id: In(dto.assigneeIds) },
+        });
+
+        if (assignees.length !== dto.assigneeIds.length) {
+          throw new BadRequestException('One or more assignees were not found');
+        }
+
+        ticket.assignees = assignees;
+      } else {
+        ticket.assignees = [];
+      }
+    }
+
+    // Validate status if provided
+    if (dto.status) {
+      const statusExists = await this.statusRepository.findOne({
+        where: { category: dto.status, projectId: ticket.projectId },
+      });
+
+      if (!statusExists) {
+        throw new BadRequestException(`Invalid status: ${dto.status}`);
+      }
+
+      ticket.statusId = statusExists.id;
+    }
+
+    // Update allowed fields
+    if (dto.title) ticket.title = dto.title;
+    if (dto.description !== undefined) ticket.description = dto.description;
+    if (dto.priority) ticket.priority = dto.priority;
+
+    // Save and return
+    const updatedTicket = await this.ticketRepository.save(ticket);
+
+    return this.ticketRepository.findOne({
+      where: { id: updatedTicket.id },
+      relations: ['status', 'project', 'createdBy', 'assignees'],
+    }) as Promise<Ticket>;
+  }
+
+  async deleteTicket(ticketId: string, userId: string): Promise<void> {
+    // Validate ticket exists
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    // Validate user has access to workspace
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    // Delete ticket
+    await this.ticketRepository.delete(ticketId);
+  }
+
+  private async generateTicketKey(projectId: string, projectKey: string): Promise<string> {
+    // Count existing tickets for this project
+    const count = await this.ticketRepository.count({
+      where: { projectId },
+    });
+
+    const nextNumber = count + 1;
+    return `${projectKey}-${nextNumber}`;
+  }
+
+  private async validateUserInWorkspace(userId: string, workspaceId: string): Promise<void> {
+    const membership = await this.workspaceMemberRepository.findOne({
+      where: {
+        userId,
+        workspaceId,
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException('Access denied: User does not belong to this workspace');
+    }
+  }
+
+  private async validateAssigneeInWorkspace(userId: string, workspaceId: string): Promise<void> {
+    const membership = await this.workspaceMemberRepository.findOne({
+      where: {
+        userId,
+        workspaceId,
+      },
+    });
+
+    if (!membership) {
+      throw new BadRequestException('Assignee must belong to the ticket project workspace');
+    }
+  }
+}
+

@@ -4,6 +4,8 @@ import {
   Entity,
   Index,
   JoinColumn,
+  JoinTable,
+  ManyToMany,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -105,6 +107,14 @@ export class Ticket {
   })
   @JoinColumn({ name: 'created_by' })
   createdBy!: User;
+
+  @ManyToMany(() => User, (user) => user.assignedTickets)
+  @JoinTable({
+    name: 'ticket_assignees',
+    joinColumn: { name: 'ticket_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'user_id', referencedColumnName: 'id' },
+  })
+  assignees!: User[];
 
   @ManyToOne(() => Ticket, (ticket) => ticket.children, {
     nullable: true,

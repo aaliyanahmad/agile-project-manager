@@ -3,6 +3,7 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  ManyToMany,
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -43,6 +44,9 @@ export class User {
 
   @OneToMany(() => Ticket, (ticket) => ticket.createdBy)
   createdTickets!: Ticket[];
+
+  @ManyToMany(() => Ticket, (ticket) => ticket.assignees)
+  assignedTickets!: Ticket[];
 
   @OneToMany(() => TicketAssignees, (assignment) => assignment.user)
   ticketAssignees!: TicketAssignees[];

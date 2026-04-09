@@ -21,6 +21,7 @@ import { Notification } from './entities/notification.entity';
 import { AuthModule } from './auth/auth.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { ProjectModule } from './project/project.module';
+import { TicketModule } from './ticket/ticket.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { ProjectModule } from './project/project.module';
     AuthModule,
     WorkspaceModule,
     ProjectModule,
+    TicketModule,
   ],
   controllers: [AppController],
   providers: [AppService],

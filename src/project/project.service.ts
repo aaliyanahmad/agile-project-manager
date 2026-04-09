@@ -6,13 +6,17 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project } from '../entities/project.entity';
+import { Status } from '../entities/status.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { StatusCategory } from '../entities/enums';
 
 @Injectable()
 export class ProjectService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Status)
+    private readonly statusRepository: Repository<Status>,
   ) {}
 
   async createProject(
@@ -42,6 +46,7 @@ export class ProjectService {
 
     try {
       const savedProject = await this.projectRepository.save(project);
+      await this.createDefaultStatuses(savedProject.id);
       return {
         success: true,
         data: savedProject,
@@ -102,5 +107,41 @@ export class ProjectService {
     const newKey = nextSuffix === 0 ? base : `${base}${nextSuffix}`;
 
     return newKey;
+  }
+
+  private async createDefaultStatuses(projectId: string): Promise<void> {
+    // Check if statuses already exist for this project (safety check)
+    const existingStatuses = await this.statusRepository.count({
+      where: { projectId },
+    });
+
+    if (existingStatuses > 0) {
+      return; // Skip creation if statuses already exist
+    }
+
+    // Create default statuses
+    const defaultStatuses = [
+      {
+        projectId,
+        name: 'Todo',
+        category: StatusCategory.TODO,
+        position: 1,
+      },
+      {
+        projectId,
+        name: 'In Progress',
+        category: StatusCategory.IN_PROGRESS,
+        position: 2,
+      },
+      {
+        projectId,
+        name: 'Done',
+        category: StatusCategory.DONE,
+        position: 3,
+      },
+    ];
+
+    const statusEntities = this.statusRepository.create(defaultStatuses);
+    await this.statusRepository.save(statusEntities);
   }
 }
