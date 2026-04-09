@@ -25,6 +25,17 @@ export class WorkspaceService {
     userId: string,
     dto: CreateWorkspaceDto,
   ): Promise<{ success: true; data: { workspace: Workspace; role: WorkspaceMemberRole } }> {
+    const existingWorkspace = await this.workspaceRepository.findOne({
+      where: {
+        ownerId: userId,
+        name: dto.name,
+      },
+    });
+
+    if (existingWorkspace) {
+      throw new BadRequestException('Workspace name must be unique for the current user');
+    }
+
     const workspace = this.workspaceRepository.create({
       name: dto.name,
       ownerId: userId,

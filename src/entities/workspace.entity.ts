@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
@@ -12,6 +13,7 @@ import { WorkspaceMember } from './workspace-member.entity';
 import { Project } from './project.entity';
 
 @Entity({ name: 'workspaces' })
+@Index(['ownerId', 'name'], { unique: true })
 export class Workspace {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

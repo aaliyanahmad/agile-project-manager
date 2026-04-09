@@ -8,12 +8,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Ticket } from '../entities/ticket.entity';
 import { Project } from '../entities/project.entity';
+import { Sprint } from '../entities/sprint.entity';
 import { Status } from '../entities/status.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
-import { TicketPriority, TicketStatus, StatusCategory } from '../entities/enums';
+import { TicketPriority, TicketStatus, SprintStatus, StatusCategory } from '../entities/enums';
 
 @Injectable()
 export class TicketService {
@@ -22,6 +24,8 @@ export class TicketService {
     private readonly ticketRepository: Repository<Ticket>,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Sprint)
+    private readonly sprintRepository: Repository<Sprint>,
     @InjectRepository(Status)
     private readonly statusRepository: Repository<Status>,
     @InjectRepository(WorkspaceMember)
@@ -138,6 +142,110 @@ export class TicketService {
       .getMany();
 
     return tickets;
+  }
+
+  async getBacklog(projectId: string, userId: string): Promise<Ticket[]> {
+    return this.getTickets(userId, projectId);
+  }
+
+  async moveTicketToSprint(
+    ticketId: string,
+    userId: string,
+    dto: MoveTicketToSprintDto,
+  ): Promise<Ticket> {
+    // First, find the ticket with minimal relations to validate permissions
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project', 'sprint'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    if (ticket.sprint && ticket.sprint.status === SprintStatus.COMPLETED) {
+      throw new BadRequestException('Cannot move tickets from a completed sprint');
+    }
+
+    const sprint = await this.sprintRepository.findOne({
+      where: { id: dto.sprintId },
+    });
+
+    if (!sprint) {
+      throw new NotFoundException('Sprint not found');
+    }
+
+    if (sprint.projectId !== ticket.projectId) {
+      throw new BadRequestException('Sprint belongs to a different project');
+    }
+
+    if (sprint.status === SprintStatus.COMPLETED) {
+      throw new BadRequestException('Cannot move ticket to a completed sprint');
+    }
+
+    // Use query builder to update directly
+    await this.ticketRepository
+      .createQueryBuilder()
+      .update(Ticket)
+      .set({ sprintId: dto.sprintId })
+      .where('id = :id', { id: ticketId })
+      .execute();
+
+    // Reload the ticket with all relations
+    const updatedTicket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+    });
+
+    if (!updatedTicket) {
+      throw new NotFoundException('Ticket not found after update');
+    }
+
+    return updatedTicket;
+  }
+
+  async removeTicketFromSprint(ticketId: string, userId: string): Promise<Ticket> {
+    // First, find the ticket with minimal relations to validate permissions
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project', 'sprint'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    if (!ticket.sprintId) {
+      throw new BadRequestException('Ticket is already in the backlog');
+    }
+
+    if (ticket.sprint && ticket.sprint.status === SprintStatus.COMPLETED) {
+      throw new BadRequestException('Cannot remove tickets from a completed sprint');
+    }
+
+    // Use query builder to update directly
+    await this.ticketRepository
+      .createQueryBuilder()
+      .update(Ticket)
+      .set({ sprintId: null })
+      .where('id = :id', { id: ticketId })
+      .execute();
+
+    // Reload the ticket with all relations
+    const updatedTicket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+    });
+
+    if (!updatedTicket) {
+      throw new NotFoundException('Ticket not found after update');
+    }
+
+    return updatedTicket;
   }
 
   async updateTicket(
