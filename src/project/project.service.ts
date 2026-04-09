@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Project } from '../entities/project.entity';
 import { Status } from '../entities/status.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { StatusCategory } from '../entities/enums';
 
 @Injectable()
@@ -60,12 +61,34 @@ export class ProjectService {
     }
   }
 
-  async getProjectsInWorkspace(workspaceId: string): Promise<Project[]> {
-    return this.projectRepository.find({
+  async getProjectsInWorkspace(
+    workspaceId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResponse<Project>> {
+    const page = pagination.page || 1;
+    const limit = Math.min(pagination.limit || 5, 5);
+    const skip = (page - 1) * limit;
+
+    const [projects, total] = await this.projectRepository.findAndCount({
       where: { workspaceId },
       order: { createdAt: 'DESC' },
       select: ['id', 'name', 'key', 'createdAt'],
+      skip,
+      take: limit,
     });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      success: true,
+      data: projects,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
   }
 
   private async generateProjectKey(name: string): Promise<string> {

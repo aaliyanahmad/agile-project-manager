@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -6,11 +6,13 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { SprintService } from './sprint.service';
 import { CreateSprintDto } from './dto/create-sprint.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PaginationDto } from '../common/dto/pagination.dto';
 import { User } from '../entities/user.entity';
 
 @Controller()
@@ -38,12 +40,14 @@ export class SprintController {
   @ApiOperation({ summary: 'List sprints for a project' })
   @ApiResponse({ status: 200, description: 'Sprint list returned successfully.' })
   @ApiParam({ name: 'projectId', description: 'Project UUID' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
   async getSprints(
     @Param('projectId') projectId: string,
+    @Query() pagination: PaginationDto,
     @CurrentUser() user: User,
   ) {
-    const data = await this.sprintService.getSprints(projectId, user.id);
-    return { success: true, data };
+    return this.sprintService.getSprints(projectId, user.id, pagination);
   }
 
   @Patch('sprints/:id/start')

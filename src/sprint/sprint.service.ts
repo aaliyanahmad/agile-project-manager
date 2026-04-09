@@ -6,6 +6,7 @@ import { Project } from '../entities/project.entity';
 import { Ticket } from '../entities/ticket.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { CreateSprintDto } from './dto/create-sprint.dto';
+import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { SprintStatus, StatusCategory } from '../entities/enums';
 
 @Injectable()
@@ -46,7 +47,11 @@ export class SprintService {
     return this.sprintRepository.save(sprint);
   }
 
-  async getSprints(projectId: string, userId: string): Promise<Sprint[]> {
+  async getSprints(
+    projectId: string,
+    userId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResponse<Sprint>> {
     const project = await this.projectRepository.findOne({ where: { id: projectId } });
     if (!project) {
       throw new NotFoundException('Project not found');
@@ -54,10 +59,29 @@ export class SprintService {
 
     await this.validateUserInWorkspace(userId, project.workspaceId);
 
-    return this.sprintRepository.find({
+    const page = pagination.page || 1;
+    const limit = Math.min(pagination.limit || 5, 5);
+    const skip = (page - 1) * limit;
+
+    const [sprints, total] = await this.sprintRepository.findAndCount({
       where: { projectId },
       order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
     });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      success: true,
+      data: sprints,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
   }
 
   async startSprint(sprintId: string, userId: string): Promise<Sprint> {

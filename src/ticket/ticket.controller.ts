@@ -8,6 +8,7 @@ import {
   Post,
   Query,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,13 +18,19 @@ import {
   ApiBody,
   ApiParam,
   ApiQuery,
+  ApiOkResponse,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 import { TicketService } from './ticket.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { GetTicketsQueryDto } from './dto/get-tickets-query.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PaginationDto } from '../common/dto/pagination.dto';
 import { User } from '../entities/user.entity';
 
 @Controller()
@@ -50,32 +57,59 @@ export class TicketController {
   @ApiOperation({ summary: 'Get backlog tickets for a project' })
   @ApiResponse({ status: 200, description: 'Backlog returned successfully.' })
   @ApiParam({ name: 'projectId', description: 'Project UUID' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
   async getBacklog(
     @Param('projectId') projectId: string,
+    @Query() pagination: PaginationDto,
     @CurrentUser() user: User,
   ) {
-    return this.ticketService.getBacklog(projectId, user.id);
+    return this.ticketService.getBacklog(projectId, user.id, pagination);
+  }
+
+  @Get('tickets/:id')
+  @ApiOperation({ summary: 'Get full ticket details by ID' })
+  @ApiOkResponse({ description: 'Ticket details returned successfully.' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiNotFoundResponse({ description: 'Ticket not found' })
+  @ApiParam({ name: 'id', description: 'Ticket UUID' })
+  async getTicketById(
+    @Param('id') ticketId: string,
+    @CurrentUser() user: User,
+  ) {
+    return {
+      success: true,
+      data: await this.ticketService.getTicketById(ticketId, user.id),
+    };
   }
 
   @Get('tickets')
   @ApiOperation({ summary: 'Get tickets for a project, optionally filtered by sprint' })
   @ApiResponse({ status: 200, description: 'Tickets returned successfully.' })
-  @ApiQuery({ name: 'projectId', required: true, description: 'Project UUID' })
-  @ApiQuery({ name: 'sprintId', required: false, description: 'Sprint UUID to filter tickets' })
   async getTickets(
-    @Query('projectId') projectId: string,
-    @Query('sprintId') sprintId?: string,
-    @CurrentUser() user?: User,
+    @Query(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ) query: GetTicketsQueryDto,
+    @CurrentUser() user: User,
   ) {
-    if (!projectId) {
-      throw new Error('projectId query parameter is required');
-    }
-    return this.ticketService.getTickets(user!.id, projectId, sprintId);
+    return this.ticketService.getTickets(
+      user.id,
+      query.projectId,
+      query.sprintId,
+      { page: query.page, limit: query.limit },
+    );
   }
 
   @Patch('tickets/:ticketId')
   @ApiOperation({ summary: 'Update a ticket' })
-  @ApiResponse({ status: 200, description: 'Ticket updated successfully.' })
+  @ApiOkResponse({ description: 'Ticket updated successfully.' })
+  @ApiBadRequestResponse({ description: 'Invalid data or status' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiParam({ name: 'ticketId', description: 'Ticket UUID' })
   @ApiBody({ type: UpdateTicketDto })
   async updateTicket(
@@ -83,7 +117,10 @@ export class TicketController {
     @CurrentUser() user: User,
     @Body() dto: UpdateTicketDto,
   ) {
-    return this.ticketService.updateTicket(ticketId, user.id, dto);
+    return {
+      success: true,
+      data: await this.ticketService.updateTicket(ticketId, user.id, dto),
+    };
   }
 
   @Patch('tickets/:ticketId/move-to-sprint')

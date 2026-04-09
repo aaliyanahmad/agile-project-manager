@@ -15,6 +15,7 @@ import { User } from '../entities/user.entity';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { TicketPriority, TicketStatus, SprintStatus, StatusCategory } from '../entities/enums';
 
 @Injectable()
@@ -108,8 +109,9 @@ export class TicketService {
   async getTickets(
     userId: string,
     projectId: string,
-    sprintId?: string,
-  ): Promise<Ticket[]> {
+    sprintId: string | undefined,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResponse<Ticket>> {
     // Validate project exists and user has access
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
@@ -120,6 +122,10 @@ export class TicketService {
     }
 
     await this.validateUserInWorkspace(userId, project.workspaceId);
+
+    const page = pagination.page || 1;
+    const limit = Math.min(pagination.limit || 5, 5); // Enforce max 5
+    const skip = (page - 1) * limit;
 
     // Build query
     let query = this.ticketRepository
@@ -133,19 +139,51 @@ export class TicketService {
       query = query.andWhere('ticket.sprintId IS NULL');
     }
 
-    const tickets = await query
+    const [tickets, total] = await query
       .orderBy('ticket.createdAt', 'ASC')
       .leftJoinAndSelect('ticket.status', 'status')
       .leftJoinAndSelect('ticket.project', 'project')
       .leftJoinAndSelect('ticket.createdBy', 'createdBy')
       .leftJoinAndSelect('ticket.assignees', 'assignees')
-      .getMany();
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
-    return tickets;
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      success: true,
+      data: tickets,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
   }
 
-  async getBacklog(projectId: string, userId: string): Promise<Ticket[]> {
-    return this.getTickets(userId, projectId);
+  async getBacklog(
+    projectId: string,
+    userId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResponse<Ticket>> {
+    return this.getTickets(userId, projectId, undefined, pagination);
+  }
+
+  async getTicketById(ticketId: string, userId: string): Promise<Ticket> {
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['status', 'project', 'sprint', 'createdBy', 'assignees'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    return ticket;
   }
 
   async moveTicketToSprint(
@@ -256,14 +294,19 @@ export class TicketService {
     // Validate ticket exists
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['project'],
+      relations: ['project', 'sprint'],
     });
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
     }
 
-    // Validate user has access to workspace
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    // Business rule: Cannot modify tickets in completed sprint
+    if (ticket.sprint && ticket.sprint.status === SprintStatus.COMPLETED) {
+      throw new ForbiddenException('Cannot modify a completed sprint');
+    }
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
 
     // Validate assignee if provided
@@ -310,7 +353,7 @@ export class TicketService {
 
     return this.ticketRepository.findOne({
       where: { id: updatedTicket.id },
-      relations: ['status', 'project', 'createdBy', 'assignees'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
     }) as Promise<Ticket>;
   }
 

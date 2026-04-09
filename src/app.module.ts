@@ -22,6 +22,7 @@ import { AuthModule } from './auth/auth.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { ProjectModule } from './project/project.module';
 import { TicketModule } from './ticket/ticket.module';
+import { BoardModule } from './board/board.module';
 import { SprintModule } from './sprint/sprint.module';
 
 @Module({
@@ -48,6 +49,7 @@ import { SprintModule } from './sprint/sprint.module';
     WorkspaceModule,
     ProjectModule,
     TicketModule,
+    BoardModule,
     SprintModule,
   ],
   controllers: [AppController],
