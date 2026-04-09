@@ -20,6 +20,7 @@ import { GitLink } from './entities/git-link.entity';
 import { Notification } from './entities/notification.entity';
 import { AuthModule } from './auth/auth.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { ProjectModule } from './project/project.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     
     AuthModule,
     WorkspaceModule,
+    ProjectModule,
   ],
   controllers: [AppController],
   providers: [AppService],
