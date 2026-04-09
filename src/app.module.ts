@@ -18,6 +18,8 @@ import { TicketAssignees } from './entities/ticket-assignees.entity';
 import { Attachment } from './entities/attachment.entity';
 import { GitLink } from './entities/git-link.entity';
 import { Notification } from './entities/notification.entity';
+import { AuthModule } from './auth/auth.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { Notification } from './entities/notification.entity';
       logging: process.env.DB_LOGGING === 'true',
     }),
     
+    AuthModule,
+    WorkspaceModule,
   ],
   controllers: [AppController],
   providers: [AppService],
