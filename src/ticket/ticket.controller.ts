@@ -28,6 +28,7 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { GetTicketsQueryDto } from './dto/get-tickets-query.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { ReorderTicketDto } from './dto/reorder-ticket.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -145,6 +146,25 @@ export class TicketController {
     @CurrentUser() user: User,
   ) {
     return this.ticketService.removeTicketFromSprint(ticketId, user.id);
+  }
+
+  @Patch('tickets/:ticketId/reorder')
+  @ApiOperation({ summary: 'Reorder a backlog ticket (gap-based ordering)' })
+  @ApiOkResponse({ description: 'Ticket reordered successfully.' })
+  @ApiBadRequestResponse({ description: 'Only backlog tickets can be reordered' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiNotFoundResponse({ description: 'Ticket not found' })
+  @ApiParam({ name: 'ticketId', description: 'Ticket UUID' })
+  @ApiBody({ type: ReorderTicketDto })
+  async reorderTicket(
+    @Param('ticketId') ticketId: string,
+    @CurrentUser() user: User,
+    @Body() dto: ReorderTicketDto,
+  ) {
+    return {
+      success: true,
+      data: await this.ticketService.reorderTicket(ticketId, user.id, dto.newPosition),
+    };
   }
 
   @Delete('tickets/:ticketId')

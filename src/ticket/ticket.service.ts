@@ -83,6 +83,17 @@ export class TicketService {
     // Generate ticket key
     const ticketKey = await this.generateTicketKey(projectId, project.key);
 
+    // Get max position in backlog - all new tickets start in backlog
+    const maxPositionResult = await this.ticketRepository
+      .createQueryBuilder('ticket')
+      .select('MAX(ticket.position)', 'max_position')
+      .where('ticket.projectId = :projectId', { projectId })
+      .andWhere('ticket.sprintId IS NULL')
+      .getRawOne();
+
+    const maxPosition = maxPositionResult?.max_position ? Number(maxPositionResult.max_position) : 0;
+    const position = maxPosition + 1;
+
     // Create ticket
     const ticket = this.ticketRepository.create({
       projectId,
@@ -91,6 +102,9 @@ export class TicketService {
       description: dto.description || null,
       statusId: todoStatus.id,
       priority: dto.priority || TicketPriority.MEDIUM,
+      sprintId: null,
+      position,
+      dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
       createdById: userId,
       assignees,
     });
@@ -101,7 +115,7 @@ export class TicketService {
       ticketId: savedTicket.id,
       userId,
       action: ActivityAction.TICKET_CREATED,
-      metadata: null,
+      metadata: {},
     });
 
     // Return ticket with related data populated
@@ -144,13 +158,15 @@ export class TicketService {
 
     if (sprintId) {
       query = query.andWhere('ticket.sprintId = :sprintId', { sprintId });
+      // Sprint tickets order by createdAt
+      query = query.orderBy('ticket.createdAt', 'ASC');
     } else {
-      // Backlog (no sprint)
+      // Backlog (no sprint) - order by position
       query = query.andWhere('ticket.sprintId IS NULL');
+      query = query.orderBy('ticket.position', 'ASC');
     }
 
     const [tickets, total] = await query
-      .orderBy('ticket.createdAt', 'ASC')
       .leftJoinAndSelect('ticket.status', 'status')
       .leftJoinAndSelect('ticket.project', 'project')
       .leftJoinAndSelect('ticket.createdBy', 'createdBy')
@@ -349,6 +365,7 @@ export class TicketService {
     const oldStatusCategory = ticket.status?.category ?? null;
     const oldPriority = ticket.priority;
     const oldSprintId = ticket.sprintId ?? null;
+    const oldDueDate = ticket.dueDate;
     const oldAssigneeIds = (ticket.assignees || []).map((assignee) => assignee.id).sort();
 
     // Validate assignee if provided
@@ -389,6 +406,9 @@ export class TicketService {
     if (dto.title) ticket.title = dto.title;
     if (dto.description !== undefined) ticket.description = dto.description;
     if (dto.priority) ticket.priority = dto.priority;
+    if (dto.dueDate !== undefined) {
+      ticket.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    }
 
     // Save ticket and return
     const updatedTicket = await this.ticketRepository.save(ticket);
@@ -454,6 +474,25 @@ export class TicketService {
       });
     }
 
+    if (dto.dueDate !== undefined) {
+      const newDueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+      const oldDueDateStr = oldDueDate ? oldDueDate.toISOString() : null;
+      const newDueDateStr = newDueDate ? newDueDate.toISOString() : null;
+
+      if (oldDueDateStr !== newDueDateStr) {
+        await this.activityService.log({
+          ticketId: finalTicket.id,
+          userId,
+          action: ActivityAction.DUE_DATE_CHANGED,
+          metadata: {
+            field: 'dueDate',
+            from: oldDueDateStr,
+            to: newDueDateStr,
+          },
+        });
+      }
+    }
+
     if (dto.assigneeIds !== undefined) {
       const newAssigneeIds = [...dto.assigneeIds].sort();
       const assigneeChanged =
@@ -506,6 +545,61 @@ export class TicketService {
 
     // Delete ticket
     await this.ticketRepository.delete(ticketId);
+  }
+
+  async reorderTicket(
+    ticketId: string,
+    userId: string,
+    newPosition: number,
+  ): Promise<Ticket> {
+    // Validate ticket exists
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project', 'sprint'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    // Validate user has access to workspace
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    // Validate that ticket is in backlog (sprint_id = NULL)
+    if (ticket.sprintId !== null) {
+      throw new BadRequestException('Only backlog tickets (not assigned to a sprint) can be reordered');
+    }
+
+    // Store old position for activity log
+    const oldPosition = ticket.position;
+
+    // Update position
+    ticket.position = newPosition;
+    const updatedTicket = await this.ticketRepository.save(ticket);
+
+    // Reload with all relations
+    const finalTicket = await this.ticketRepository.findOne({
+      where: { id: updatedTicket.id },
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+    });
+
+    if (!finalTicket) {
+      throw new NotFoundException('Ticket not found after reorder');
+    }
+
+    // Log activity
+    await this.activityService.log({
+      ticketId: finalTicket.id,
+      userId,
+      action: ActivityAction.TICKET_REORDERED,
+      metadata: {
+        field: 'position',
+        from: oldPosition,
+        to: newPosition,
+      },
+    });
+
+    return finalTicket;
   }
 
   private async generateTicketKey(projectId: string, projectKey: string): Promise<string> {

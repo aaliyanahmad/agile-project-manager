@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength, IsEnum, IsUUID, IsArray, ArrayUnique } from 'class-validator';
+import { IsOptional, IsString, MinLength, IsEnum, IsUUID, IsArray, ArrayUnique, IsISO8601 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TicketPriority, StatusCategory } from '../../entities/enums';
 
@@ -23,6 +23,11 @@ export class UpdateTicketDto {
   @IsEnum(TicketPriority)
   @IsOptional()
   priority?: TicketPriority;
+
+  @ApiPropertyOptional({ description: 'Due date for the ticket (ISO 8601 format or null to remove)', example: '2026-04-30T23:59:59Z' })
+  @IsISO8601()
+  @IsOptional()
+  dueDate?: string | null;
 
   @ApiPropertyOptional({ description: 'Updated list of assignee UUIDs', type: [String] })
   @IsArray()
