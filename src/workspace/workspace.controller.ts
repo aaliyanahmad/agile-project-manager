@@ -47,7 +47,7 @@ export class WorkspaceController {
   @ApiOperation({ summary: 'List workspaces for the authenticated user' })
   @ApiResponse({ status: 200, description: 'Workspace list returned successfully.' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 50)' })
   async getUserWorkspaces(
     @CurrentUser() user: User,
     @Query() pagination: PaginationDto,

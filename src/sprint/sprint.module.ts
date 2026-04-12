@@ -4,11 +4,12 @@ import { Sprint } from '../entities/sprint.entity';
 import { Project } from '../entities/project.entity';
 import { Ticket } from '../entities/ticket.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
+import { ActivityModule } from '../activity/activity.module';
 import { SprintController } from './sprint.controller';
 import { SprintService } from './sprint.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Sprint, Project, Ticket, WorkspaceMember])],
+  imports: [TypeOrmModule.forFeature([Sprint, Project, Ticket, WorkspaceMember]), ActivityModule],
   controllers: [SprintController],
   providers: [SprintService],
   exports: [SprintService],

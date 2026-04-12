@@ -24,6 +24,8 @@ import { ProjectModule } from './project/project.module';
 import { TicketModule } from './ticket/ticket.module';
 import { BoardModule } from './board/board.module';
 import { SprintModule } from './sprint/sprint.module';
+import { CommentModule } from './comment/comment.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -51,6 +53,8 @@ import { SprintModule } from './sprint/sprint.module';
     TicketModule,
     BoardModule,
     SprintModule,
+    CommentModule,
+    ActivityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

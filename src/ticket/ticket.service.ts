@@ -12,6 +12,8 @@ import { Sprint } from '../entities/sprint.entity';
 import { Status } from '../entities/status.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
+import { ActivityService } from '../activity/activity.service';
+import { ActivityAction } from '../entities/activity-action.enum';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
@@ -33,6 +35,7 @@ export class TicketService {
     private readonly workspaceMemberRepository: Repository<WorkspaceMember>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly activityService: ActivityService,
   ) {}
 
   async createTicket(
@@ -94,6 +97,13 @@ export class TicketService {
 
     const savedTicket = await this.ticketRepository.save(ticket);
 
+    await this.activityService.log({
+      ticketId: savedTicket.id,
+      userId,
+      action: ActivityAction.TICKET_CREATED,
+      metadata: null,
+    });
+
     // Return ticket with related data populated
     const ticketWithRelations = await this.ticketRepository.findOne({
       where: { id: savedTicket.id },
@@ -124,7 +134,7 @@ export class TicketService {
     await this.validateUserInWorkspace(userId, project.workspaceId);
 
     const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 5); // Enforce max 5
+    const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
     // Build query
@@ -149,16 +159,13 @@ export class TicketService {
       .take(limit)
       .getManyAndCount();
 
-    const totalPages = Math.ceil(total / limit);
-
     return {
       success: true,
-      data: tickets,
-      meta: {
+      data: {
+        items: tickets,
         total,
         page,
         limit,
-        totalPages,
       },
     };
   }
@@ -172,10 +179,15 @@ export class TicketService {
   }
 
   async getTicketById(ticketId: string, userId: string): Promise<Ticket> {
-    const ticket = await this.ticketRepository.findOne({
-      where: { id: ticketId },
-      relations: ['status', 'project', 'sprint', 'createdBy', 'assignees'],
-    });
+    const ticket = await this.ticketRepository
+      .createQueryBuilder('ticket')
+      .leftJoinAndSelect('ticket.project', 'project')
+      .leftJoinAndSelect('ticket.sprint', 'sprint')
+      .leftJoinAndSelect('ticket.status', 'status')
+      .leftJoinAndSelect('ticket.assignees', 'assignees')
+      .leftJoinAndSelect('ticket.createdBy', 'createdBy')
+      .where('ticket.id = :ticketId', { ticketId })
+      .getOne();
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
@@ -241,6 +253,19 @@ export class TicketService {
       throw new NotFoundException('Ticket not found after update');
     }
 
+    if (ticket.sprintId !== dto.sprintId) {
+      await this.activityService.log({
+        ticketId: updatedTicket.id,
+        userId,
+        action: ActivityAction.MOVED_TO_SPRINT,
+        metadata: {
+          field: 'sprint',
+          from: ticket.sprintId,
+          to: dto.sprintId,
+        },
+      });
+    }
+
     return updatedTicket;
   }
 
@@ -283,6 +308,17 @@ export class TicketService {
       throw new NotFoundException('Ticket not found after update');
     }
 
+    await this.activityService.log({
+      ticketId: updatedTicket.id,
+      userId,
+      action: ActivityAction.REMOVED_FROM_SPRINT,
+      metadata: {
+        field: 'sprint',
+        from: ticket.sprintId,
+        to: null,
+      },
+    });
+
     return updatedTicket;
   }
 
@@ -294,7 +330,7 @@ export class TicketService {
     // Validate ticket exists
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['project', 'sprint'],
+      relations: ['project', 'sprint', 'assignees', 'status'],
     });
 
     if (!ticket) {
@@ -307,7 +343,13 @@ export class TicketService {
     if (ticket.sprint && ticket.sprint.status === SprintStatus.COMPLETED) {
       throw new ForbiddenException('Cannot modify a completed sprint');
     }
-    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    const oldTitle = ticket.title;
+    const oldDescription = ticket.description;
+    const oldStatusCategory = ticket.status?.category ?? null;
+    const oldPriority = ticket.priority;
+    const oldSprintId = ticket.sprintId ?? null;
+    const oldAssigneeIds = (ticket.assignees || []).map((assignee) => assignee.id).sort();
 
     // Validate assignee if provided
     if (dto.assigneeIds !== undefined) {
@@ -348,13 +390,104 @@ export class TicketService {
     if (dto.description !== undefined) ticket.description = dto.description;
     if (dto.priority) ticket.priority = dto.priority;
 
-    // Save and return
+    // Save ticket and return
     const updatedTicket = await this.ticketRepository.save(ticket);
 
-    return this.ticketRepository.findOne({
+    const finalTicket = await this.ticketRepository.findOne({
       where: { id: updatedTicket.id },
       relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
-    }) as Promise<Ticket>;
+    });
+
+    if (!finalTicket) {
+      throw new NotFoundException('Ticket not found after update');
+    }
+
+    if (dto.title !== undefined && dto.title !== oldTitle) {
+      await this.activityService.log({
+        ticketId: finalTicket.id,
+        userId,
+        action: ActivityAction.TITLE_UPDATED,
+        metadata: {
+          field: 'title',
+          from: oldTitle,
+          to: dto.title,
+        },
+      });
+    }
+
+    if (dto.description !== undefined && dto.description !== oldDescription) {
+      await this.activityService.log({
+        ticketId: finalTicket.id,
+        userId,
+        action: ActivityAction.DESCRIPTION_UPDATED,
+        metadata: {
+          field: 'description',
+          from: oldDescription,
+          to: dto.description,
+        },
+      });
+    }
+
+    if (dto.status !== undefined && dto.status !== oldStatusCategory) {
+      await this.activityService.log({
+        ticketId: finalTicket.id,
+        userId,
+        action: ActivityAction.STATUS_CHANGED,
+        metadata: {
+          field: 'status',
+          from: oldStatusCategory,
+          to: dto.status,
+        },
+      });
+    }
+
+    if (dto.priority !== undefined && dto.priority !== oldPriority) {
+      await this.activityService.log({
+        ticketId: finalTicket.id,
+        userId,
+        action: ActivityAction.PRIORITY_CHANGED,
+        metadata: {
+          field: 'priority',
+          from: oldPriority,
+          to: dto.priority,
+        },
+      });
+    }
+
+    if (dto.assigneeIds !== undefined) {
+      const newAssigneeIds = [...dto.assigneeIds].sort();
+      const assigneeChanged =
+        newAssigneeIds.length !== oldAssigneeIds.length ||
+        newAssigneeIds.some((id, index) => id !== oldAssigneeIds[index]);
+
+      if (assigneeChanged) {
+        await this.activityService.log({
+          ticketId: finalTicket.id,
+          userId,
+          action: ActivityAction.ASSIGNEE_CHANGED,
+          metadata: {
+            field: 'assignee',
+            from: oldAssigneeIds,
+            to: newAssigneeIds,
+          },
+        });
+      }
+    }
+
+    if (finalTicket.sprintId !== oldSprintId) {
+      await this.activityService.log({
+        ticketId: finalTicket.id,
+        userId,
+        action: ActivityAction.SPRINT_ASSIGNMENT_CHANGED,
+        metadata: {
+          field: 'sprint',
+          from: oldSprintId,
+          to: finalTicket.sprintId,
+        },
+      });
+    }
+
+    return finalTicket;
   }
 
   async deleteTicket(ticketId: string, userId: string): Promise<void> {

@@ -58,7 +58,7 @@ export class TicketController {
   @ApiResponse({ status: 200, description: 'Backlog returned successfully.' })
   @ApiParam({ name: 'projectId', description: 'Project UUID' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 50)' })
   async getBacklog(
     @Param('projectId') projectId: string,
     @Query() pagination: PaginationDto,

@@ -8,10 +8,12 @@ import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
 import { TicketController } from './ticket.controller';
 import { TicketService } from './ticket.service';
+import { ActivityModule } from '../activity/activity.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Ticket, Project, Sprint, Status, WorkspaceMember, User]),
+    ActivityModule,
   ],
   controllers: [TicketController],
   providers: [TicketService],

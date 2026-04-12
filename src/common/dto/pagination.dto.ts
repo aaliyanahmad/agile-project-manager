@@ -10,22 +10,21 @@ export class PaginationDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: 'Items per page (max 5)', example: 5, default: 5 })
+  @ApiPropertyOptional({ description: 'Items per page (max 50)', example: 5, default: 5 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(50)
   limit?: number = 5;
 }
 
 export interface PaginatedResponse<T> {
   success: true;
-  data: T[];
-  meta: {
+  data: {
+    items: T[];
     total: number;
     page: number;
     limit: number;
-    totalPages: number;
   };
 }

@@ -48,7 +48,7 @@ export class BoardService {
     await this.validateUserInWorkspace(userId, project.workspaceId);
 
     const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 5);
+    const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
     let query = this.ticketRepository

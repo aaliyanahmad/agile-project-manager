@@ -20,11 +20,11 @@ export class GetTicketsQueryDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: 'Items per page (max 5)', example: 5, default: 5 })
+  @ApiPropertyOptional({ description: 'Items per page (max 50)', example: 5, default: 5 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(50)
   limit?: number = 5;
 }

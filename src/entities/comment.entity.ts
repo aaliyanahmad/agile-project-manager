@@ -15,6 +15,7 @@ import { Attachment } from './attachment.entity';
 
 @Entity({ name: 'comments' })
 @Index('idx_comment_ticket_id', ['ticketId'])
+@Index('idx_comment_created_at', ['createdAt'])
 @Index('idx_comment_user_id', ['userId'])
 export class Comment {
   @PrimaryGeneratedColumn('uuid')

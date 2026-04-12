@@ -66,7 +66,7 @@ export class ProjectService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Project>> {
     const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 5);
+    const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
     const [projects, total] = await this.projectRepository.findAndCount({
@@ -77,16 +77,13 @@ export class ProjectService {
       take: limit,
     });
 
-    const totalPages = Math.ceil(total / limit);
-
     return {
       success: true,
-      data: projects,
-      meta: {
+      data: {
+        items: projects,
         total,
         page,
         limit,
-        totalPages,
       },
     };
   }
