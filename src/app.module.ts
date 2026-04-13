@@ -26,6 +26,10 @@ import { BoardModule } from './board/board.module';
 import { SprintModule } from './sprint/sprint.module';
 import { CommentModule } from './comment/comment.module';
 import { ActivityModule } from './activity/activity.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { SearchModule } from './search/search.module';
+import { ProjectActivityModule } from './project-activity/project-activity.module';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
@@ -55,6 +59,10 @@ import { ActivityModule } from './activity/activity.module';
     SprintModule,
     CommentModule,
     ActivityModule,
+    DashboardModule,
+    SearchModule,
+    ProjectActivityModule,
+    UserModule,
   ],
   controllers: [AppController],
   providers: [AppService],
