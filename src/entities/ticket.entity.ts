@@ -34,6 +34,7 @@ import { GitLink } from './git-link.entity';
 @Index('idx_ticket_title', ['title'])
 @Index('idx_ticket_ticket_key', ['ticketKey'])
 @Index('idx_ticket_description', ['description'])
+@Index('idx_ticket_project_status_priority', ['projectId', 'statusId', 'priority'])
 export class Ticket {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

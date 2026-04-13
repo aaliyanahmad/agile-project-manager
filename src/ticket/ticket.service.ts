@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Ticket } from '../entities/ticket.entity';
 import { Project } from '../entities/project.entity';
 import { Sprint } from '../entities/sprint.entity';
@@ -17,6 +17,8 @@ import { ActivityAction } from '../entities/activity-action.enum';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { BulkTicketActionDto, BulkActionType, BulkActionResponse } from './dto/bulk-ticket-action.dto';
+import { GetTicketsQueryDto } from './dto/get-tickets-query.dto';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { TicketPriority, TicketStatus, SprintStatus, StatusCategory } from '../entities/enums';
 
@@ -36,6 +38,7 @@ export class TicketService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly activityService: ActivityService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createTicket(
@@ -132,13 +135,11 @@ export class TicketService {
 
   async getTickets(
     userId: string,
-    projectId: string,
-    sprintId: string | undefined,
-    pagination: PaginationDto,
+    query: GetTicketsQueryDto,
   ): Promise<PaginatedResponse<Ticket>> {
     // Validate project exists and user has access
     const project = await this.projectRepository.findOne({
-      where: { id: projectId },
+      where: { id: query.projectId },
     });
 
     if (!project) {
@@ -147,33 +148,78 @@ export class TicketService {
 
     await this.validateUserInWorkspace(userId, project.workspaceId);
 
-    const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 50);
+    const page = query.page || 1;
+    const limit = Math.min(query.limit || 5, 50);
     const skip = (page - 1) * limit;
 
-    // Build query
-    let query = this.ticketRepository
+    // Build query with all filters
+    let qb = this.ticketRepository
       .createQueryBuilder('ticket')
-      .where('ticket.projectId = :projectId', { projectId });
-
-    if (sprintId) {
-      query = query.andWhere('ticket.sprintId = :sprintId', { sprintId });
-      // Sprint tickets order by createdAt
-      query = query.orderBy('ticket.createdAt', 'ASC');
-    } else {
-      // Backlog (no sprint) - order by position
-      query = query.andWhere('ticket.sprintId IS NULL');
-      query = query.orderBy('ticket.position', 'ASC');
-    }
-
-    const [tickets, total] = await query
       .leftJoinAndSelect('ticket.status', 'status')
       .leftJoinAndSelect('ticket.project', 'project')
+      .leftJoinAndSelect('ticket.sprint', 'sprint')
       .leftJoinAndSelect('ticket.createdBy', 'createdBy')
-      .leftJoinAndSelect('ticket.assignees', 'assignees')
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+      .leftJoinAndSelect('ticket.assignees', 'assignees');
+
+    // Always filter by project
+    qb = qb.where('ticket.projectId = :projectId', { projectId: query.projectId });
+
+    // Apply filters conditionally
+    if (query.sprintId) {
+      qb = qb.andWhere('ticket.sprintId = :sprintId', { sprintId: query.sprintId });
+    }
+
+    if (query.statusId) {
+      qb = qb.andWhere('ticket.statusId = :statusId', { statusId: query.statusId });
+    }
+
+    if (query.statusCategory) {
+      qb = qb.andWhere('status.category = :statusCategory', { statusCategory: query.statusCategory });
+    }
+
+    if (query.priority) {
+      qb = qb.andWhere('ticket.priority = :priority', { priority: query.priority });
+    }
+
+    if (query.assigneeId) {
+      qb = qb.andWhere('assignees.id = :assigneeId', { assigneeId: query.assigneeId });
+    }
+
+    if (query.dueDateFrom) {
+      qb = qb.andWhere('ticket.dueDate >= :dueDateFrom', { dueDateFrom: new Date(query.dueDateFrom) });
+    }
+
+    if (query.dueDateTo) {
+      qb = qb.andWhere('ticket.dueDate <= :dueDateTo', { dueDateTo: new Date(query.dueDateTo) });
+    }
+
+    // Apply sorting
+    if (query.sortBy) {
+      // Custom sorting requested
+      const sortOrder = query.order || 'DESC';
+
+      if (query.sortBy === 'dueDate') {
+        // NULL dueDate values should go last
+        qb = qb.orderBy('ticket.dueDate IS NULL', 'ASC')
+               .addOrderBy(`ticket.${query.sortBy}`, sortOrder as 'ASC' | 'DESC');
+      } else {
+        qb = qb.orderBy(`ticket.${query.sortBy}`, sortOrder as 'ASC' | 'DESC');
+      }
+    } else {
+      // Default sorting
+      if (query.sprintId) {
+        // Sprint tickets - order by updatedAt DESC
+        qb = qb.orderBy('ticket.updatedAt', 'DESC');
+      } else {
+        // Backlog (no sprint) - order by position ASC
+        qb = qb.orderBy('ticket.position', 'ASC');
+      }
+    }
+
+    // Apply pagination
+    qb = qb.skip(skip).take(limit);
+
+    const [tickets, total] = await qb.getManyAndCount();
 
     return {
       success: true,
@@ -191,7 +237,12 @@ export class TicketService {
     userId: string,
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Ticket>> {
-    return this.getTickets(userId, projectId, undefined, pagination);
+    const query: GetTicketsQueryDto = {
+      projectId,
+      page: pagination.page,
+      limit: pagination.limit,
+    };
+    return this.getTickets(userId, query);
   }
 
   async getTicketById(ticketId: string, userId: string): Promise<Ticket> {
@@ -207,6 +258,10 @@ export class TicketService {
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
+    }
+
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
     }
 
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
@@ -227,6 +282,10 @@ export class TicketService {
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
+    }
+
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
     }
 
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
@@ -296,6 +355,10 @@ export class TicketService {
       throw new NotFoundException('Ticket not found');
     }
 
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
+    }
+
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
 
     if (!ticket.sprintId) {
@@ -324,7 +387,9 @@ export class TicketService {
       throw new NotFoundException('Ticket not found after update');
     }
 
-    await this.activityService.log({
+    console.log('About to log activity');
+
+    const activityResult = await this.activityService.log({
       ticketId: updatedTicket.id,
       userId,
       action: ActivityAction.REMOVED_FROM_SPRINT,
@@ -334,6 +399,8 @@ export class TicketService {
         to: null,
       },
     });
+
+    console.log('Activity log result:', activityResult);
 
     return updatedTicket;
   }
@@ -351,6 +418,10 @@ export class TicketService {
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
+    }
+
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
     }
 
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
@@ -540,6 +611,10 @@ export class TicketService {
       throw new NotFoundException('Ticket not found');
     }
 
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
+    }
+
     // Validate user has access to workspace
     await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
 
@@ -560,6 +635,10 @@ export class TicketService {
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
+    }
+
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
     }
 
     // Validate user has access to workspace
@@ -600,6 +679,212 @@ export class TicketService {
     });
 
     return finalTicket;
+  }
+
+  async bulkUpdateTickets(
+    ticketIds: string[],
+    projectId: string,
+    userId: string,
+    dto: BulkTicketActionDto,
+  ): Promise<BulkActionResponse> {
+    // Validate action
+    if (!dto.action || !Object.values(BulkActionType).includes(dto.action)) {
+      throw new BadRequestException('Invalid action type');
+    }
+
+    // Validate project exists
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // Validate user has access to workspace
+    await this.validateUserInWorkspace(userId, project.workspaceId);
+
+    // Validate action-specific payload
+    switch (dto.action) {
+      case BulkActionType.ASSIGN:
+        if (!dto.payload.assigneeId) {
+          throw new BadRequestException('assigneeId is required for ASSIGN action');
+        }
+        // Validate assignee exists and belongs to workspace
+        const assignee = await this.userRepository.findOne({
+          where: { id: dto.payload.assigneeId },
+        });
+        if (!assignee) {
+          throw new BadRequestException('Assignee not found');
+        }
+        await this.validateAssigneeInWorkspace(dto.payload.assigneeId, project.workspaceId);
+        break;
+
+      case BulkActionType.PRIORITY:
+        if (!dto.payload.priority) {
+          throw new BadRequestException('priority is required for PRIORITY action');
+        }
+        if (!Object.values(TicketPriority).includes(dto.payload.priority)) {
+          throw new BadRequestException('Invalid priority value');
+        }
+        break;
+
+      case BulkActionType.MOVE_TO_SPRINT:
+        if (!dto.payload.sprintId) {
+          throw new BadRequestException('sprintId is required for MOVE_TO_SPRINT action');
+        }
+        const sprint = await this.sprintRepository.findOne({
+          where: { id: dto.payload.sprintId },
+        });
+        if (!sprint) {
+          throw new NotFoundException('Sprint not found');
+        }
+        if (sprint.projectId !== projectId) {
+          throw new BadRequestException('Sprint belongs to a different project');
+        }
+        if (sprint.status === SprintStatus.COMPLETED) {
+          throw new BadRequestException('Cannot move tickets to a completed sprint');
+        }
+        break;
+
+      case BulkActionType.MOVE_TO_BACKLOG:
+        // No validation needed for payload
+        break;
+    }
+
+    // Fetch all tickets to validate they exist and belong to the project
+    const tickets = await this.ticketRepository.find({
+      where: {
+        id: In(ticketIds),
+        projectId,
+      },
+      relations: ['sprint', 'assignees'],
+    });
+
+    if (tickets.length === 0) {
+      throw new BadRequestException('No valid tickets found in this project');
+    }
+
+    if (tickets.length !== ticketIds.length) {
+      throw new BadRequestException('Some tickets do not belong to this project or do not exist');
+    }
+
+    // Check if any ticket belongs to a completed sprint (for sprint movement only)
+    if (dto.action === BulkActionType.MOVE_TO_SPRINT || dto.action === BulkActionType.MOVE_TO_BACKLOG) {
+      const completedSprintTickets = tickets.filter(
+        (t) => t.sprint && t.sprint.status === SprintStatus.COMPLETED,
+      );
+      if (completedSprintTickets.length > 0) {
+        throw new BadRequestException(
+          'Cannot move tickets from a completed sprint',
+        );
+      }
+    }
+
+    // Use transaction to apply changes
+    let updatedCount = 0;
+    await this.dataSource.transaction(async (manager) => {
+      const ticketRepo = manager.getRepository(Ticket);
+
+      for (const ticket of tickets) {
+        const oldState = {
+          assigneeIds: ticket.assignees ? ticket.assignees.map((a) => a.id).sort() : [],
+          priority: ticket.priority,
+          sprintId: ticket.sprintId,
+        };
+
+        switch (dto.action) {
+          case BulkActionType.ASSIGN:
+            // Update assignees
+            const newAssignee = await manager.getRepository(User).findOne({
+              where: { id: dto.payload.assigneeId },
+            });
+            if (newAssignee) {
+              ticket.assignees = [newAssignee];
+              await ticketRepo.save(ticket);
+              updatedCount++;
+
+              // Log activity
+              await this.activityService.log({
+                ticketId: ticket.id,
+                userId,
+                action: ActivityAction.ASSIGNEE_CHANGED,
+                metadata: {
+                  field: 'assignee',
+                  from: oldState.assigneeIds,
+                  to: [dto.payload.assigneeId],
+                },
+              });
+            }
+            break;
+
+          case BulkActionType.PRIORITY:
+            if (ticket.priority !== dto.payload.priority) {
+              ticket.priority = dto.payload.priority!;
+              await ticketRepo.save(ticket);
+              updatedCount++;
+
+              // Log activity
+              await this.activityService.log({
+                ticketId: ticket.id,
+                userId,
+                action: ActivityAction.PRIORITY_CHANGED,
+                metadata: {
+                  field: 'priority',
+                  from: oldState.priority,
+                  to: dto.payload.priority,
+                },
+              });
+            }
+            break;
+
+          case BulkActionType.MOVE_TO_SPRINT:
+            if (ticket.sprintId !== dto.payload.sprintId) {
+              ticket.sprintId = dto.payload.sprintId!;
+              await ticketRepo.save(ticket);
+              updatedCount++;
+
+              // Log activity
+              await this.activityService.log({
+                ticketId: ticket.id,
+                userId,
+                action: ActivityAction.MOVED_TO_SPRINT,
+                metadata: {
+                  field: 'sprint',
+                  from: oldState.sprintId,
+                  to: dto.payload.sprintId,
+                },
+              });
+            }
+            break;
+
+          case BulkActionType.MOVE_TO_BACKLOG:
+            if (ticket.sprintId !== null) {
+              ticket.sprintId = null;
+              await ticketRepo.save(ticket);
+              updatedCount++;
+
+              // Log activity
+              await this.activityService.log({
+                ticketId: ticket.id,
+                userId,
+                action: ActivityAction.MOVED_TO_BACKLOG,
+                metadata: {
+                  field: 'sprint',
+                  from: oldState.sprintId,
+                  to: null,
+                },
+              });
+            }
+            break;
+        }
+      }
+    });
+
+    return {
+      success: true,
+      updatedCount,
+    };
   }
 
   private async generateTicketKey(projectId: string, projectKey: string): Promise<string> {

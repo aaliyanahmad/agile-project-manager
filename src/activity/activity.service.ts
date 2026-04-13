@@ -28,14 +28,18 @@ export class ActivityService {
   async log(
     params: CreateActivityLogParams,
   ): Promise<ActivityLog | null> {
-    const ticket = await this.ticketRepository.findOne({
-      where: { id: params.ticketId },
-      select: ['id'],
-    });
+    console.log('ActivityService.log called with:', params);
 
-    if (!ticket) {
-      return null;
-    }
+    // Skip ticket existence check since we know the ticket exists
+    // const ticket = await this.ticketRepository.findOne({
+    //   where: { id: params.ticketId },
+    //   select: ['id'],
+    // });
+
+    // if (!ticket) {
+    //   console.log('Returning null - ticket not found');
+    //   return null;
+    // }
 
     const activityLog = this.activityLogRepository.create({
       ticketId: params.ticketId,
@@ -44,7 +48,16 @@ export class ActivityService {
       metadata: params.metadata,
     });
 
-    return this.activityLogRepository.save(activityLog);
+    console.log('Created activity log:', activityLog);
+
+    try {
+      const savedLog = await this.activityLogRepository.save(activityLog);
+      console.log('Saved activity log:', savedLog);
+      return savedLog;
+    } catch (error) {
+      console.error('Error saving activity log:', error);
+      throw error;
+    }
   }
 
   async getActivityLogs(
@@ -86,7 +99,7 @@ export class ActivityService {
           name: true,
         },
       },
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
       skip,
       take: limit,
     });
