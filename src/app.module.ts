@@ -30,6 +30,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SearchModule } from './search/search.module';
 import { ProjectActivityModule } from './project-activity/project-activity.module';
 import { UserModule } from './user/user.module';
+import { StatusModule } from './status/status.module';
+import { LabelsModule } from './labels/labels.module';
 
 @Module({
   imports: [
@@ -63,6 +65,8 @@ import { UserModule } from './user/user.module';
     SearchModule,
     ProjectActivityModule,
     UserModule,
+    StatusModule,
+    LabelsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

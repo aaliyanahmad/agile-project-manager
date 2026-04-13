@@ -1,3 +1,4 @@
+
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -10,6 +11,7 @@ import { ActivityAction } from '../entities/activity-action.enum';
 import { CreateSprintDto } from './dto/create-sprint.dto';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { SprintStatus, StatusCategory } from '../entities/enums';
+
 
 @Injectable()
 export class SprintService {
@@ -25,6 +27,14 @@ export class SprintService {
     private readonly dataSource: DataSource,
     private readonly activityService: ActivityService,
   ) {}
+
+  async updateSprint(sprintId: string, userId: string, dto: { goal?: string | null }): Promise<Sprint> {
+    const sprint = await this.sprintRepository.findOne({ where: { id: sprintId }, relations: ['project'] });
+    if (!sprint) throw new NotFoundException('Sprint not found');
+    await this.validateUserInWorkspace(userId, sprint.project.workspaceId);
+    if (dto.goal !== undefined) sprint.goal = dto.goal;
+    return this.sprintRepository.save(sprint);
+  }
 
   async createSprint(
     projectId: string,

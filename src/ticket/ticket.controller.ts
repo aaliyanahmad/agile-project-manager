@@ -1,3 +1,4 @@
+import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import {
   Body,
   Controller,
@@ -30,6 +31,7 @@ import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
 import { ReorderTicketDto } from './dto/reorder-ticket.dto';
 import { BulkTicketActionDto, BulkActionResponse } from './dto/bulk-ticket-action.dto';
+import { AssignLabelsDto } from './dto/assign-labels.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -41,6 +43,29 @@ import { User } from '../entities/user.entity';
 @ApiBearerAuth()
 export class TicketController {
   constructor(private readonly ticketService: TicketService) {}
+  @Post('tickets/:parentId/subtasks')
+  @ApiOperation({ summary: 'Create a subtask for a ticket' })
+  @ApiResponse({ status: 201, description: 'Subtask created successfully.' })
+  @ApiParam({ name: 'parentId', description: 'Parent ticket UUID' })
+  @ApiBody({ type: CreateSubtaskDto })
+  async createSubtask(
+    @Param('parentId') parentId: string,
+    @CurrentUser() user: User,
+    @Body() dto: CreateSubtaskDto,
+  ) {
+    return this.ticketService.createSubtask(parentId, user.id, dto);
+  }
+
+  @Get('tickets/:id/subtasks')
+  @ApiOperation({ summary: 'Get all subtasks for a ticket' })
+  @ApiResponse({ status: 200, description: 'List of subtasks returned successfully.' })
+  @ApiParam({ name: 'id', description: 'Ticket UUID' })
+  async getSubtasks(
+    @Param('id') ticketId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.ticketService.getSubtasks(ticketId, user.id);
+  }
 
   @Post('projects/:projectId/tickets')
   @ApiOperation({ summary: 'Create a ticket in a project' })
@@ -81,7 +106,7 @@ export class TicketController {
   ) {
     return {
       success: true,
-      data: await this.ticketService.getTicketById(ticketId, user.id),
+      data: await this.ticketService.getTicketDetailWithSubtasks(ticketId, user.id),
     };
   }
 
@@ -100,6 +125,7 @@ export class TicketController {
   @ApiQuery({ name: 'limit', description: 'Items per page (max 50)', required: false, example: 5 })
   @ApiQuery({ name: 'sortBy', description: 'Sort field', required: false, enum: ['dueDate', 'priority', 'updatedAt', 'position'], example: 'dueDate' })
   @ApiQuery({ name: 'order', description: 'Sort order', required: false, enum: ['ASC', 'DESC'], example: 'DESC' })
+  @ApiQuery({ name: 'labelIds', description: 'Comma-separated label UUIDs to filter tickets', required: false })
   async getTickets(
     @Query(
       new ValidationPipe({
@@ -154,6 +180,22 @@ export class TicketController {
     @CurrentUser() user: User,
   ) {
     return this.ticketService.removeTicketFromSprint(ticketId, user.id);
+  }
+
+  @Patch('tickets/:ticketId/labels')
+  @ApiOperation({ summary: 'Replace labels on a ticket' })
+  @ApiOkResponse({ description: 'Labels updated successfully.' })
+  @ApiParam({ name: 'ticketId', description: 'Ticket UUID' })
+  @ApiBody({ type: AssignLabelsDto })
+  async assignLabels(
+    @Param('ticketId') ticketId: string,
+    @CurrentUser() user: User,
+    @Body() dto: AssignLabelsDto,
+  ) {
+    return {
+      success: true,
+      data: await this.ticketService.assignLabelsToTicket(ticketId, user.id, dto),
+    };
   }
 
   @Patch('tickets/:ticketId/reorder')

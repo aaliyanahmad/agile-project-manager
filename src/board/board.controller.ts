@@ -67,7 +67,7 @@ export class BoardController {
   ) {
     return {
       success: true,
-      data: await this.boardService.updateTicketStatus(ticketId, dto.status, user.id),
+      data: await this.boardService.updateTicketStatus(ticketId, dto.statusId, user.id),
     };
   }
 }

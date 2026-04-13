@@ -12,7 +12,10 @@ import { Status } from '../entities/status.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
-import { StatusCategory, SprintStatus } from '../entities/enums';
+import { SprintStatus, StatusCategory } from '../entities/enums';
+import { ActivityService } from '../activity/activity.service';
+import { ActivityAction } from '../entities/activity-action.enum';
+import { BoardTicketDto } from './dto/board-ticket.dto';
 
 @Injectable()
 export class BoardService {
@@ -25,6 +28,7 @@ export class BoardService {
     private readonly statusRepository: Repository<Status>,
     @InjectRepository(WorkspaceMember)
     private readonly workspaceMemberRepository: Repository<WorkspaceMember>,
+    private readonly activityService: ActivityService,
   ) {}
 
   async getBoardData(
@@ -34,7 +38,7 @@ export class BoardService {
     pagination: PaginationDto,
   ): Promise<{
     success: true;
-    data: { todo: Ticket[]; inProgress: Ticket[]; done: Ticket[] };
+    data: { columns: Array<{ status: Status; tickets: BoardTicketDto[] }> };
     meta: { total: number; page: number; limit: number; totalPages: number };
   }> {
     const project = await this.projectRepository.findOne({
@@ -47,10 +51,17 @@ export class BoardService {
 
     await this.validateUserInWorkspace(userId, project.workspaceId);
 
+    // Load statuses ordered by position
+    const statuses = await this.statusRepository.find({
+      where: { projectId },
+      order: { position: 'ASC' },
+    });
+
     const page = pagination.page || 1;
     const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
+    // Build base query
     let query = this.ticketRepository
       .createQueryBuilder('ticket')
       .where('ticket.projectId = :projectId', { projectId });
@@ -61,42 +72,48 @@ export class BoardService {
       query = query.andWhere('ticket.sprintId IS NULL');
     }
 
+    // Optimize joins to avoid duplicates: use distinct and count strategy
     const [tickets, total] = await query
-      .orderBy('ticket.createdAt', 'ASC')
       .leftJoinAndSelect('ticket.status', 'status')
-      .leftJoinAndSelect('ticket.project', 'project')
       .leftJoinAndSelect('ticket.assignees', 'assignees')
+      .leftJoinAndSelect('ticket.labels', 'labels')
+      .distinct(true)
+      .orderBy('ticket.createdAt', 'ASC')
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
-    const board = {
-      todo: [] as Ticket[],
-      inProgress: [] as Ticket[],
-      done: [] as Ticket[],
-    };
+    // Compute subtask counts for all fetched tickets
+    const subtaskCountsMap = await this.getSubtaskCounts(tickets.map((t) => t.id));
 
-    for (const ticket of tickets) {
-      switch (ticket.status.category) {
-        case StatusCategory.TODO:
-          board.todo.push(ticket);
-          break;
-        case StatusCategory.IN_PROGRESS:
-          board.inProgress.push(ticket);
-          break;
-        case StatusCategory.DONE:
-          board.done.push(ticket);
-          break;
-        default:
-          board.todo.push(ticket);
-      }
-    }
+    // Transform tickets to BoardTicketDto with subtask counts
+    const boardTickets = tickets.map((ticket) =>
+      BoardTicketDto.fromTicket(ticket, subtaskCountsMap[ticket.id] || { total: 0, completed: 0 }),
+    );
+
+    // Group tickets by status
+    const ticketGroups = boardTickets.reduce(
+      (acc, ticket) => {
+        if (!acc[ticket.statusId]) {
+          acc[ticket.statusId] = [];
+        }
+        acc[ticket.statusId].push(ticket);
+        return acc;
+      },
+      {} as Record<string, BoardTicketDto[]>,
+    );
+
+    // Build columns with all statuses
+    const columns = statuses.map((status) => ({
+      status,
+      tickets: ticketGroups[status.id] || [],
+    }));
 
     const totalPages = Math.ceil(total / limit);
 
     return {
       success: true,
-      data: board,
+      data: { columns },
       meta: {
         total,
         page,
@@ -106,14 +123,56 @@ export class BoardService {
     };
   }
 
+  /**
+   * Fetch subtask counts for multiple tickets in a single query
+   * Returns a map of ticketId -> { total, completed }
+   */
+  private async getSubtaskCounts(
+    ticketIds: string[],
+  ): Promise<Record<string, { total: number; completed: number }>> {
+    if (ticketIds.length === 0) {
+      return {};
+    }
+
+    // Get all subtasks and their statuses
+    const subtasks = await this.ticketRepository
+      .createQueryBuilder('subtask')
+      .leftJoinAndSelect('subtask.status', 'status')
+      .where('subtask.parentTicketId IN (:...parentIds)', { parentIds: ticketIds })
+      .select('subtask.parentTicketId', 'parentTicketId')
+      .addSelect('subtask.id', 'id')
+      .addSelect('status.category', 'statusCategory')
+      .getRawMany();
+
+    // Aggregate counts by parent ticket ID
+    const counts: Record<string, { total: number; completed: number }> = {};
+
+    for (const ticketId of ticketIds) {
+      counts[ticketId] = { total: 0, completed: 0 };
+    }
+
+    for (const subtask of subtasks) {
+      const parentId = subtask.parentTicketId;
+      if (counts[parentId]) {
+        counts[parentId].total += 1;
+        if (subtask.statusCategory === 'DONE') {
+          counts[parentId].completed += 1;
+        }
+      }
+    }
+
+    return counts;
+  }
+
   async updateTicketStatus(
     ticketId: string,
-    status: StatusCategory,
+    statusId: string,
     userId: string,
   ): Promise<Ticket> {
+    // Fetch ticket with its current status
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['project', 'sprint'],
+      relations: ['project', 'sprint', 'status', 'assignees', 'labels'],
     });
 
     if (!ticket) {
@@ -127,20 +186,39 @@ export class BoardService {
       throw new ForbiddenException('Cannot modify a completed sprint');
     }
 
+    // Fetch new status to validate it belongs to this project
     const statusEntity = await this.statusRepository.findOne({
-      where: { category: status, projectId: ticket.projectId },
+      where: { id: statusId, projectId: ticket.projectId },
     });
 
     if (!statusEntity) {
-      throw new BadRequestException(`Invalid status: ${status}`);
+      throw new BadRequestException('Invalid status ID for this project');
     }
 
+    // Store old status for activity logging
+    const oldStatusName = ticket.status?.name || 'Unknown';
+    const newStatusName = statusEntity.name;
+
+    // Update ticket status
     ticket.statusId = statusEntity.id;
     await this.ticketRepository.save(ticket);
 
+    // Log activity: STATUS_CHANGED
+    await this.activityService.log({
+      ticketId: ticket.id,
+      userId,
+      action: ActivityAction.STATUS_CHANGED,
+      metadata: {
+        field: 'status',
+        from: oldStatusName,
+        to: newStatusName,
+      },
+    });
+
+    // Fetch and return updated ticket with all relations
     const updatedTicket = await this.ticketRepository.findOne({
       where: { id: ticket.id },
-      relations: ['status', 'assignees'],
+      relations: ['status', 'assignees', 'labels'],
     });
 
     if (!updatedTicket) {

@@ -22,6 +22,7 @@ import { TicketLabels } from './ticket-labels.entity';
 import { TicketAssignees } from './ticket-assignees.entity';
 import { Attachment } from './attachment.entity';
 import { GitLink } from './git-link.entity';
+import { Label } from './label.entity';
 
 @Entity({ name: 'tickets' })
 @Index('idx_ticket_project_id', ['projectId'])
@@ -116,6 +117,14 @@ export class Ticket {
     inverseJoinColumn: { name: 'user_id', referencedColumnName: 'id' },
   })
   assignees!: User[];
+
+  @ManyToMany(() => Label, (label) => label.tickets)
+  @JoinTable({
+    name: 'ticket_labels',
+    joinColumn: { name: 'ticket_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'label_id', referencedColumnName: 'id' },
+  })
+  labels!: Label[];
 
   @ManyToOne(() => Ticket, (ticket) => ticket.children, {
     nullable: true,

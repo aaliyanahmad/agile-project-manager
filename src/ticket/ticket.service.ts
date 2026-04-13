@@ -1,3 +1,4 @@
+import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -12,18 +13,151 @@ import { Sprint } from '../entities/sprint.entity';
 import { Status } from '../entities/status.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
+import { Label } from '../entities/label.entity';
 import { ActivityService } from '../activity/activity.service';
 import { ActivityAction } from '../entities/activity-action.enum';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { MoveTicketToSprintDto } from './dto/move-ticket-to-sprint.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { AssignLabelsDto } from './dto/assign-labels.dto';
 import { BulkTicketActionDto, BulkActionType, BulkActionResponse } from './dto/bulk-ticket-action.dto';
 import { GetTicketsQueryDto } from './dto/get-tickets-query.dto';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
-import { TicketPriority, TicketStatus, SprintStatus, StatusCategory } from '../entities/enums';
+import { TicketPriority, SprintStatus, StatusCategory } from '../entities/enums';
 
 @Injectable()
 export class TicketService {
+    /**
+     * Create a subtask for a parent ticket, enforcing all subtask rules.
+     */
+    async createSubtask(
+      parentId: string,
+      userId: string,
+      dto: CreateSubtaskDto,
+    ): Promise<{ success: true; data: Ticket }> {
+      // 1. Fetch parent ticket with project and parentTicketId
+      const parent = await this.ticketRepository.findOne({
+        where: { id: parentId },
+        relations: ['project'],
+      });
+      if (!parent) throw new NotFoundException('Parent ticket not found');
+      // 2. Validate user in workspace
+      await this.validateUserInWorkspace(userId, parent.project.workspaceId);
+      // 3. Prevent subtask of subtask (one level only)
+      if (parent.parentTicketId) {
+        throw new BadRequestException('Cannot create a subtask of a subtask (only one level allowed)');
+      }
+      // 4. Prevent circular reference (parent cannot be a subtask of this ticket)
+      if (dto.statusId && dto.statusId === parentId) {
+        throw new BadRequestException('Subtask cannot have same status as parent');
+      }
+      // 5. Validate assignees
+      let assignees: User[] = [];
+      if (dto.assigneeIds && dto.assigneeIds.length > 0) {
+        for (const assigneeId of dto.assigneeIds) {
+          await this.validateAssigneeInWorkspace(assigneeId, parent.project.workspaceId);
+        }
+        assignees = await this.userRepository.find({ where: { id: In(dto.assigneeIds) } });
+        if (assignees.length !== dto.assigneeIds.length) {
+          throw new BadRequestException('One or more assignees were not found');
+        }
+      }
+      // 6. Status
+      let statusId = dto.statusId;
+      if (!statusId) {
+        // Use default TODO status for project
+        const todoStatus = await this.statusRepository.findOne({
+          where: { category: StatusCategory.TODO, projectId: parent.projectId },
+        });
+        if (!todoStatus) throw new BadRequestException('Default status (TODO) not configured');
+        statusId = todoStatus.id;
+      } else {
+        // Validate status belongs to same project
+        const status = await this.statusRepository.findOne({ where: { id: statusId, projectId: parent.projectId } });
+        if (!status) throw new BadRequestException('Status does not belong to parent ticket project');
+      }
+      // 7. Generate ticket key
+      const ticketKey = await this.generateTicketKey(parent.projectId, parent.project.key);
+      // 8. Create subtask
+      const subtask = this.ticketRepository.create({
+        projectId: parent.projectId,
+        ticketKey,
+        title: dto.title,
+        description: dto.description || null,
+        statusId,
+        priority: dto.priority || TicketPriority.MEDIUM,
+        sprintId: null,
+        position: null,
+        dueDate: null,
+        createdById: userId,
+        parentTicketId: parent.id,
+        assignees,
+      });
+      // 9. Save
+      const saved = await this.ticketRepository.save(subtask);
+      await this.activityService.log({
+        ticketId: saved.id,
+        userId,
+        action: ActivityAction.TICKET_CREATED,
+        metadata: { parentTicketId: parent.id },
+      });
+      // 10. Return with relations
+      const withRelations = await this.ticketRepository.findOne({
+        where: { id: saved.id },
+        relations: ['status', 'project', 'createdBy', 'assignees', 'labels', 'parentTicket'],
+      });
+      return { success: true, data: withRelations! };
+    }
+
+    /**
+     * Get all subtasks for a ticket, including status, assignees, labels.
+     */
+    async getSubtasks(ticketId: string, userId: string) {
+      // Validate parent ticket and user access
+      const parent = await this.ticketRepository.findOne({ where: { id: ticketId }, relations: ['project'] });
+      if (!parent) throw new NotFoundException('Ticket not found');
+      await this.validateUserInWorkspace(userId, parent.project.workspaceId);
+      // Get subtasks
+      const subtasks = await this.ticketRepository.find({
+        where: { parentTicketId: ticketId },
+        relations: ['status', 'assignees', 'labels'],
+        order: { createdAt: 'ASC' },
+      });
+      return { success: true, data: subtasks };
+    }
+
+    /**
+     * Get ticket detail with subtasks summary for GET /tickets/:id
+     */
+    async getTicketDetailWithSubtasks(ticketId: string, userId: string) {
+      const ticket = await this.ticketRepository.findOne({
+        where: { id: ticketId },
+        relations: ['project', 'sprint', 'status', 'assignees', 'createdBy', 'labels', 'parentTicket'],
+      });
+      if (!ticket) throw new NotFoundException('Ticket not found');
+      await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+      // Get subtasks summary
+      const subtasks = await this.ticketRepository.find({
+        where: { parentTicketId: ticketId },
+        relations: ['status', 'assignees'],
+        order: { createdAt: 'ASC' },
+      });
+      // Completion logic
+      const total = subtasks.length;
+      const completed = subtasks.filter(st => st.status && st.status.category === StatusCategory.DONE).length;
+      // Return ticket detail + subtasks summary
+      return {
+        ...ticket,
+        parentTicketId: ticket.parentTicketId,
+        subtasks: subtasks.map(st => ({
+          id: st.id,
+          title: st.title,
+          status: st.status,
+          assignees: st.assignees,
+        })),
+        subtaskCompletion: { total, completed },
+      };
+    }
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepository: Repository<Ticket>,
@@ -37,6 +171,8 @@ export class TicketService {
     private readonly workspaceMemberRepository: Repository<WorkspaceMember>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Label)
+    private readonly labelRepository: Repository<Label>,
     private readonly activityService: ActivityService,
     private readonly dataSource: DataSource,
   ) {}
@@ -124,7 +260,7 @@ export class TicketService {
     // Return ticket with related data populated
     const ticketWithRelations = await this.ticketRepository.findOne({
       where: { id: savedTicket.id },
-      relations: ['status', 'project', 'createdBy', 'assignees'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'labels'],
     });
 
     return {
@@ -152,71 +288,69 @@ export class TicketService {
     const limit = Math.min(query.limit || 5, 50);
     const skip = (page - 1) * limit;
 
-    // Build query with all filters
+    // Build query with all filters and advanced joins
     let qb = this.ticketRepository
       .createQueryBuilder('ticket')
       .leftJoinAndSelect('ticket.status', 'status')
       .leftJoinAndSelect('ticket.project', 'project')
       .leftJoinAndSelect('ticket.sprint', 'sprint')
       .leftJoinAndSelect('ticket.createdBy', 'createdBy')
-      .leftJoinAndSelect('ticket.assignees', 'assignees');
+      .leftJoinAndSelect('ticket.assignees', 'assignees')
+      .leftJoinAndSelect('ticket.labels', 'labels');
 
-    // Always filter by project
     qb = qb.where('ticket.projectId = :projectId', { projectId: query.projectId });
 
-    // Apply filters conditionally
     if (query.sprintId) {
       qb = qb.andWhere('ticket.sprintId = :sprintId', { sprintId: query.sprintId });
     }
-
     if (query.statusId) {
       qb = qb.andWhere('ticket.statusId = :statusId', { statusId: query.statusId });
     }
-
     if (query.statusCategory) {
       qb = qb.andWhere('status.category = :statusCategory', { statusCategory: query.statusCategory });
     }
-
     if (query.priority) {
       qb = qb.andWhere('ticket.priority = :priority', { priority: query.priority });
     }
-
-    if (query.assigneeId) {
-      qb = qb.andWhere('assignees.id = :assigneeId', { assigneeId: query.assigneeId });
+    if (query.parentTicketId) {
+      qb = qb.andWhere('ticket.parentTicketId = :parentTicketId', { parentTicketId: query.parentTicketId });
     }
-
+    if (query.assigneeIds && query.assigneeIds.length > 0) {
+      qb = qb.innerJoin('ticket.assignees', 'filterAssignee', 'filterAssignee.id IN (:...assigneeIds)', {
+        assigneeIds: query.assigneeIds,
+      });
+    }
+    if (query.labelIds && query.labelIds.length > 0) {
+      qb = qb.innerJoin('ticket.labels', 'filterLabel', 'filterLabel.id IN (:...labelIds)', {
+        labelIds: query.labelIds,
+      });
+    }
     if (query.dueDateFrom) {
       qb = qb.andWhere('ticket.dueDate >= :dueDateFrom', { dueDateFrom: new Date(query.dueDateFrom) });
     }
-
     if (query.dueDateTo) {
       qb = qb.andWhere('ticket.dueDate <= :dueDateTo', { dueDateTo: new Date(query.dueDateTo) });
     }
 
+    qb = qb.distinct(true);
+
     // Apply sorting
     if (query.sortBy) {
-      // Custom sorting requested
       const sortOrder = query.order || 'DESC';
-
       if (query.sortBy === 'dueDate') {
-        // NULL dueDate values should go last
         qb = qb.orderBy('ticket.dueDate IS NULL', 'ASC')
                .addOrderBy(`ticket.${query.sortBy}`, sortOrder as 'ASC' | 'DESC');
       } else {
         qb = qb.orderBy(`ticket.${query.sortBy}`, sortOrder as 'ASC' | 'DESC');
       }
     } else {
-      // Default sorting
       if (query.sprintId) {
-        // Sprint tickets - order by updatedAt DESC
         qb = qb.orderBy('ticket.updatedAt', 'DESC');
       } else {
-        // Backlog (no sprint) - order by position ASC
         qb = qb.orderBy('ticket.position', 'ASC');
       }
     }
 
-    // Apply pagination
     qb = qb.skip(skip).take(limit);
 
     const [tickets, total] = await qb.getManyAndCount();
@@ -253,6 +387,7 @@ export class TicketService {
       .leftJoinAndSelect('ticket.status', 'status')
       .leftJoinAndSelect('ticket.assignees', 'assignees')
       .leftJoinAndSelect('ticket.createdBy', 'createdBy')
+      .leftJoinAndSelect('ticket.labels', 'labels')
       .where('ticket.id = :ticketId', { ticketId })
       .getOne();
 
@@ -321,7 +456,7 @@ export class TicketService {
     // Reload the ticket with all relations
     const updatedTicket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint', 'labels'],
     });
 
     if (!updatedTicket) {
@@ -380,7 +515,7 @@ export class TicketService {
     // Reload the ticket with all relations
     const updatedTicket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint', 'labels'],
     });
 
     if (!updatedTicket) {
@@ -401,6 +536,61 @@ export class TicketService {
     });
 
     console.log('Activity log result:', activityResult);
+
+    return updatedTicket;
+  }
+
+  async assignLabelsToTicket(
+    ticketId: string,
+    userId: string,
+    dto: AssignLabelsDto,
+  ): Promise<Ticket> {
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['project'],
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    if (!ticket.project) {
+      throw new NotFoundException('Ticket project not found');
+    }
+
+    await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
+
+    const labelIds = dto.labelIds || [];
+
+    if (labelIds.length > 0) {
+      const labels = await this.labelRepository.find({
+        where: { id: In(labelIds) },
+      });
+
+      if (labels.length !== labelIds.length) {
+        throw new BadRequestException('One or more labels were not found');
+      }
+
+      const invalidLabel = labels.find((label) => label.projectId !== ticket.projectId);
+      if (invalidLabel) {
+        throw new BadRequestException('Labels must belong to the same project as the ticket');
+      }
+
+      ticket.labels = labels;
+    } else {
+      ticket.labels = [];
+    }
+
+    await this.ticketRepository.save(ticket);
+
+    const updatedTicket = await this.ticketRepository.findOne({
+      where: { id: ticket.id },
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint', 'labels'],
+    });
+
+    if (!updatedTicket) {
+      throw new NotFoundException('Ticket not found after update');
+    }
 
     return updatedTicket;
   }
@@ -434,6 +624,7 @@ export class TicketService {
     const oldTitle = ticket.title;
     const oldDescription = ticket.description;
     const oldStatusCategory = ticket.status?.category ?? null;
+    const oldStatusId = ticket.statusId;
     const oldPriority = ticket.priority;
     const oldSprintId = ticket.sprintId ?? null;
     const oldDueDate = ticket.dueDate;
@@ -461,13 +652,13 @@ export class TicketService {
     }
 
     // Validate status if provided
-    if (dto.status) {
+    if (dto.statusId) {
       const statusExists = await this.statusRepository.findOne({
-        where: { category: dto.status, projectId: ticket.projectId },
+        where: { id: dto.statusId, projectId: ticket.projectId },
       });
 
       if (!statusExists) {
-        throw new BadRequestException(`Invalid status: ${dto.status}`);
+        throw new BadRequestException('Invalid status ID for this project');
       }
 
       ticket.statusId = statusExists.id;
@@ -486,7 +677,7 @@ export class TicketService {
 
     const finalTicket = await this.ticketRepository.findOne({
       where: { id: updatedTicket.id },
-      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint', 'labels'],
     });
 
     if (!finalTicket) {
@@ -519,7 +710,11 @@ export class TicketService {
       });
     }
 
-    if (dto.status !== undefined && dto.status !== oldStatusCategory) {
+    if (dto.statusId !== undefined && dto.statusId !== oldStatusId) {
+      const newStatus = await this.statusRepository.findOne({
+        where: { id: dto.statusId },
+      });
+
       await this.activityService.log({
         ticketId: finalTicket.id,
         userId,
@@ -527,7 +722,7 @@ export class TicketService {
         metadata: {
           field: 'status',
           from: oldStatusCategory,
-          to: dto.status,
+          to: newStatus?.category ?? null,
         },
       });
     }
@@ -571,14 +766,17 @@ export class TicketService {
         newAssigneeIds.some((id, index) => id !== oldAssigneeIds[index]);
 
       if (assigneeChanged) {
+        // Calculate added and removed assignees
+        const added = newAssigneeIds.filter(id => !oldAssigneeIds.includes(id));
+        const removed = oldAssigneeIds.filter(id => !newAssigneeIds.includes(id));
+
         await this.activityService.log({
           ticketId: finalTicket.id,
           userId,
           action: ActivityAction.ASSIGNEE_CHANGED,
           metadata: {
-            field: 'assignee',
-            from: oldAssigneeIds,
-            to: newAssigneeIds,
+            added,
+            removed,
           },
         });
       }
@@ -659,7 +857,7 @@ export class TicketService {
     // Reload with all relations
     const finalTicket = await this.ticketRepository.findOne({
       where: { id: updatedTicket.id },
-      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint'],
+      relations: ['status', 'project', 'createdBy', 'assignees', 'sprint', 'labels'],
     });
 
     if (!finalTicket) {

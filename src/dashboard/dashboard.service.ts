@@ -6,7 +6,7 @@ import { Sprint } from '../entities/sprint.entity';
 import { ActivityLog } from '../entities/activity-log.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { Project } from '../entities/project.entity';
-import { SprintStatus, TicketStatus, StatusCategory } from '../entities/enums';
+import { SprintStatus, StatusCategory } from '../entities/enums';
 
 @Injectable()
 export class DashboardService {

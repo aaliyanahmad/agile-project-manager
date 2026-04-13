@@ -10,6 +10,7 @@ import {
 } from '@nestjs/swagger';
 import { SprintService } from './sprint.service';
 import { CreateSprintDto } from './dto/create-sprint.dto';
+import { UpdateSprintDto } from './dto/update-sprint.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -48,6 +49,20 @@ export class SprintController {
     @CurrentUser() user: User,
   ) {
     return this.sprintService.getSprints(projectId, user.id, pagination);
+  }
+
+  @Patch('sprints/:id')
+  @ApiOperation({ summary: 'Update a sprint (goal)' })
+  @ApiResponse({ status: 200, description: 'Sprint updated successfully.' })
+  @ApiParam({ name: 'id', description: 'Sprint UUID' })
+  @ApiBody({ type: UpdateSprintDto })
+  async updateSprint(
+    @Param('id') sprintId: string,
+    @CurrentUser() user: User,
+    @Body() dto: UpdateSprintDto,
+  ) {
+    const data = await this.sprintService.updateSprint(sprintId, user.id, dto);
+    return { success: true, data };
   }
 
   @Patch('sprints/:id/start')
