@@ -17,6 +17,8 @@ import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { Project } from '../entities/project.entity';
 import { ActivityService } from '../activity/activity.service';
 import { ActivityAction } from '../entities/activity-action.enum';
+import { EventPublisherService } from '../events/publisher/event-publisher.service';
+import { EventType } from '../events/enums/event-type.enum';
 
 @Injectable()
 export class AttachmentsService {
@@ -37,6 +39,7 @@ export class AttachmentsService {
     private readonly projectRepository: Repository<Project>,
     private readonly uploadService: UploadService,
     private readonly activityService: ActivityService,
+    private readonly eventPublisherService: EventPublisherService,
   ) {}
 
   /**
@@ -59,7 +62,7 @@ export class AttachmentsService {
     // Validate ticket exists and get its project
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['project'],
+      relations: ['project', 'assignees'],
     });
 
     if (!ticket) {
@@ -112,6 +115,23 @@ export class AttachmentsService {
       );
       // Don't throw - attachment was saved successfully, logging failure is non-critical
     }
+
+    // Publish event
+    const assigneeIds = (ticket.assignees || []).map((a) => a.id);
+    const event = this.eventPublisherService.createEvent(
+      EventType.ATTACHMENT_ADDED,
+      {
+        ticketId,
+        projectId: ticket.projectId,
+        performedBy: userId,
+        targetUsers: assigneeIds,
+        metadata: {
+          fileName: uploadResult.fileName,
+          fileSize: uploadResult.fileSize,
+        },
+      },
+    );
+    await this.eventPublisherService.publish(event);
 
     return savedAttachment;
   }

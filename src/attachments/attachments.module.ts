@@ -10,6 +10,7 @@ import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { Project } from '../entities/project.entity';
 import { UploadModule } from '../upload/upload.module';
 import { ActivityModule } from '../activity/activity.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ActivityModule } from '../activity/activity.module';
     ]),
     UploadModule,
     ActivityModule,
+    EventsModule,
   ],
   controllers: [AttachmentsController],
   providers: [AttachmentsService],

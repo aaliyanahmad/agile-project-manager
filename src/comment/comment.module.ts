@@ -7,6 +7,7 @@ import { Ticket } from '../entities/ticket.entity';
 import { Project } from '../entities/project.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
+import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { User } from '../entities/user.entity';
       WorkspaceMember,
       User,
     ]),
+    EventsModule,
   ],
   controllers: [CommentController],
   providers: [CommentService],

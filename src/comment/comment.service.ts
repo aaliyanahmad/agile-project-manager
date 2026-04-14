@@ -14,6 +14,8 @@ import { User } from '../entities/user.entity';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
+import { EventPublisherService } from '../events/publisher/event-publisher.service';
+import { EventType } from '../events/enums/event-type.enum';
 
 @Injectable()
 export class CommentService {
@@ -28,6 +30,7 @@ export class CommentService {
     private readonly workspaceMemberRepository: Repository<WorkspaceMember>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly eventPublisherService: EventPublisherService,
   ) {}
 
   /**
@@ -41,7 +44,7 @@ export class CommentService {
     // Validate ticket exists and get project details for workspace validation
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['project'],
+      relations: ['project', 'assignees'],
     });
 
     if (!ticket) {
@@ -77,6 +80,19 @@ export class CommentService {
         },
       },
     });
+
+    // Publish event
+    const assigneeIds = (ticket.assignees || []).map((a) => a.id);
+    const event = this.eventPublisherService.createEvent(
+      EventType.COMMENT_ADDED,
+      {
+        ticketId,
+        projectId: ticket.projectId,
+        performedBy: userId,
+        targetUsers: assigneeIds,
+      },
+    );
+    await this.eventPublisherService.publish(event);
 
     return {
       success: true,

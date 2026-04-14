@@ -21,7 +21,6 @@ import { Status } from './status.entity';
 import { TicketLabels } from './ticket-labels.entity';
 import { TicketAssignees } from './ticket-assignees.entity';
 import { Attachment } from './attachment.entity';
-import { GitLink } from './git-link.entity';
 import { Label } from './label.entity';
 
 @Entity({ name: 'tickets' })
@@ -144,9 +143,6 @@ export class Ticket {
 
   @OneToMany(() => Attachment, (attachment) => attachment.ticket)
   attachments!: Attachment[];
-
-  @OneToMany(() => GitLink, (gitLink) => gitLink.ticket)
-  gitLinks!: GitLink[];
 
   @OneToMany(() => Comment, (comment) => comment.ticket)
   comments!: Comment[];

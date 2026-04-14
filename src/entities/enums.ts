@@ -32,16 +32,4 @@ export enum UserTheme {
   LIGHT = 'LIGHT',
 }
 
-export enum NotificationType {
-  TICKET_ASSIGNED = 'TICKET_ASSIGNED',
-  COMMENT_ADDED = 'COMMENT_ADDED',
-  MENTIONED = 'MENTIONED',
-  STATUS_CHANGED = 'STATUS_CHANGED',
-  SPRINT_STARTED = 'SPRINT_STARTED',
-  SPRINT_COMPLETED = 'SPRINT_COMPLETED',
-}
 
-export enum GitLinkType {
-  PR = 'PR',
-  COMMIT = 'COMMIT',
-}

@@ -24,6 +24,8 @@ import { BulkTicketActionDto, BulkActionType, BulkActionResponse } from './dto/b
 import { GetTicketsQueryDto } from './dto/get-tickets-query.dto';
 import { PaginationDto, PaginatedResponse } from '../common/dto/pagination.dto';
 import { TicketPriority, SprintStatus, StatusCategory } from '../entities/enums';
+import { EventPublisherService } from '../events/publisher/event-publisher.service';
+import { EventType } from '../events/enums/event-type.enum';
 
 @Injectable()
 export class TicketService {
@@ -185,6 +187,7 @@ export class TicketService {
     @InjectRepository(Label)
     private readonly labelRepository: Repository<Label>,
     private readonly activityService: ActivityService,
+    private readonly eventPublisherService: EventPublisherService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -267,6 +270,18 @@ export class TicketService {
       action: ActivityAction.TICKET_CREATED,
       metadata: {},
     });
+
+    // Publish event
+    const event = this.eventPublisherService.createEvent(
+      EventType.TICKET_CREATED,
+      {
+        ticketId: savedTicket.id,
+        projectId,
+        performedBy: userId,
+        targetUsers: [userId],
+      },
+    );
+    await this.eventPublisherService.publish(event);
 
     // Return ticket with related data populated
     const ticketWithRelations = await this.ticketRepository.findOne({
@@ -806,6 +821,50 @@ export class TicketService {
       });
     }
 
+    // Publish events for state changes
+    if (dto.assigneeIds !== undefined) {
+      const newAssigneeIds = [...dto.assigneeIds].sort();
+      const assigneeChanged =
+        newAssigneeIds.length !== oldAssigneeIds.length ||
+        newAssigneeIds.some((id, index) => id !== oldAssigneeIds[index]);
+
+      if (assigneeChanged) {
+        // Calculate added assignees
+        const added = newAssigneeIds.filter(id => !oldAssigneeIds.includes(id));
+
+        if (added.length > 0) {
+          const event = this.eventPublisherService.createEvent(
+            EventType.ASSIGNEE_ADDED,
+            {
+              ticketId: finalTicket.id,
+              projectId: finalTicket.projectId,
+              performedBy: userId,
+              targetUsers: added,
+            },
+          );
+          await this.eventPublisherService.publish(event);
+        }
+      }
+    }
+
+    if (dto.statusId !== undefined && dto.statusId !== oldStatusId) {
+      const currentAssigneeIds = (finalTicket.assignees || []).map((a) => a.id);
+      const event = this.eventPublisherService.createEvent(
+        EventType.STATUS_CHANGED,
+        {
+          ticketId: finalTicket.id,
+          projectId: finalTicket.projectId,
+          performedBy: userId,
+          targetUsers: currentAssigneeIds,
+          metadata: {
+            from: oldStatusCategory,
+            to: finalTicket.status?.category ?? null,
+          },
+        },
+      );
+      await this.eventPublisherService.publish(event);
+    }
+
     return finalTicket;
   }
 
@@ -1089,6 +1148,28 @@ export class TicketService {
         }
       }
     });
+
+    // Publish events for bulk actions
+    if (dto.action === BulkActionType.ASSIGN) {
+      for (const ticket of tickets) {
+        const oldAssigneeIds = ticket.assignees ? ticket.assignees.map((a) => a.id).sort() : [];
+        const newAssigneeIds = [dto.payload.assigneeId!];
+        const added = newAssigneeIds.filter(id => !oldAssigneeIds.includes(id));
+
+        if (added.length > 0) {
+          const event = this.eventPublisherService.createEvent(
+            EventType.ASSIGNEE_ADDED,
+            {
+              ticketId: ticket.id,
+              projectId: ticket.projectId,
+              performedBy: userId,
+              targetUsers: added,
+            },
+          );
+          await this.eventPublisherService.publish(event);
+        }
+      }
+    }
 
     return {
       success: true,

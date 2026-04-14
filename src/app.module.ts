@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { User } from './entities/user.entity';
 import { Workspace } from './entities/workspace.entity';
@@ -16,8 +17,7 @@ import { Label } from './entities/label.entity';
 import { TicketLabels } from './entities/ticket-labels.entity';
 import { TicketAssignees } from './entities/ticket-assignees.entity';
 import { Attachment } from './entities/attachment.entity';
-import { GitLink } from './entities/git-link.entity';
-import { Notification } from './entities/notification.entity';
+import { ProcessedEvent } from './events/entities/processed-event.entity';
 import { AuthModule } from './auth/auth.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { ProjectModule } from './project/project.module';
@@ -36,6 +36,8 @@ import { UploadModule } from './upload/upload.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { EventsModule } from './events/events.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { join } from 'path';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost:27017/agile-notifications'),
 
     TypeOrmModule.forRoot({
       type: 'postgres',
@@ -54,7 +57,7 @@ import { join } from 'path';
       username: process.env.DB_USERNAME,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_DATABASE,
-      entities: [User, Workspace, WorkspaceMember, Project, Sprint, Ticket, Comment, ActivityLog, Status, Label, TicketLabels, TicketAssignees, Attachment, GitLink, Notification],
+      entities: [User, Workspace, WorkspaceMember, Project, Sprint, Ticket, Comment, ActivityLog, Status, Label, TicketLabels, TicketAssignees, Attachment, ProcessedEvent],
       autoLoadEntities: true,
       synchronize: false,  // Disabled for production, use migrations
       migrations: ['dist/migrations/*.js'],
@@ -77,6 +80,8 @@ import { join } from 'path';
     LabelsModule,
     UploadModule,
     AttachmentsModule,
+    EventsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
