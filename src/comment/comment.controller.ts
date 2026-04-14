@@ -127,6 +127,19 @@ export class CommentController {
                 id: '550e8400-e29b-41d4-a716-446655440002',
                 name: 'John Doe',
               },
+              attachments: [
+                {
+                  id: '550e8400-e29b-41d4-a716-446655440003',
+                  fileUrl: '/uploads/document.pdf',
+                  fileName: 'document.pdf',
+                  fileSize: 512000,
+                  uploadedBy: {
+                    id: '550e8400-e29b-41d4-a716-446655440002',
+                    name: 'John Doe',
+                  },
+                  createdAt: '2025-01-15T10:05:00Z',
+                },
+              ],
             },
           ],
           total: 1,

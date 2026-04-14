@@ -1,0 +1,8 @@
+Yah mera attached github project ha nextjs with nextui (HeroUI), is main ui or components main reuseable components pary howy unko agr use krny ki zroort pry to unko hi use krna
+
+is project ky liya ab (platform)/point/page.tsx main ik page bnao jis main components ky andr ik reuable table pra hoga usko hi use krna or data main wo transactions show krna jo questions, answers or penalties main point earn or deduct howy hoty hain 
+Data main Content Type (Question Post, Answer, Miscellanies) , view content , points, point status (earn, deduct) 
+or table sy upper ik filter dena ha jis main module select kr sky. or status total earned , total deduct, top scorer
+
+Page should use tailwind CSS, NestUI (Hero UI), Use attractive gradients and glass morphism according to theme pallet colors, and Dark and Light Mode which is already integrated, and use theme pallet from tailwind.config.ts file, Make separate separate artifact for each separate file, Use lucide react icons, Pages, Texts , Components should be responsive on all screens, or jaha tumhy lagy ky yaha toltip honi chahiya wahah toltip lga dena
+Har component yah page ka code mujhe alag alag artifacts main dena, jaha jaha aria-label ki zroor ho waha waha lazmi lgaya kro , Artifact main mujhe file name with complete path bhi btana 

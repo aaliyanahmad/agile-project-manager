@@ -132,7 +132,7 @@ export class TicketService {
     async getTicketDetailWithSubtasks(ticketId: string, userId: string) {
       const ticket = await this.ticketRepository.findOne({
         where: { id: ticketId },
-        relations: ['project', 'sprint', 'status', 'assignees', 'createdBy', 'labels', 'parentTicket'],
+        relations: ['project', 'sprint', 'status', 'assignees', 'createdBy', 'labels', 'parentTicket', 'attachments', 'attachments.uploadedBy'],
       });
       if (!ticket) throw new NotFoundException('Ticket not found');
       await this.validateUserInWorkspace(userId, ticket.project.workspaceId);
@@ -149,6 +149,17 @@ export class TicketService {
       return {
         ...ticket,
         parentTicketId: ticket.parentTicketId,
+        attachments: ticket.attachments?.map(att => ({
+          id: att.id,
+          fileUrl: att.fileUrl,
+          fileName: att.fileName,
+          fileSize: att.fileSize,
+          uploadedBy: {
+            id: att.uploadedBy.id,
+            name: att.uploadedBy.name,
+          },
+          createdAt: att.createdAt,
+        })) || [],
         subtasks: subtasks.map(st => ({
           id: st.id,
           title: st.title,

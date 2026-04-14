@@ -32,9 +32,17 @@ import { ProjectActivityModule } from './project-activity/project-activity.modul
 import { UserModule } from './user/user.module';
 import { StatusModule } from './status/status.module';
 import { LabelsModule } from './labels/labels.module';
+import { UploadModule } from './upload/upload.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -67,6 +75,8 @@ import { LabelsModule } from './labels/labels.module';
     UserModule,
     StatusModule,
     LabelsModule,
+    UploadModule,
+    AttachmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

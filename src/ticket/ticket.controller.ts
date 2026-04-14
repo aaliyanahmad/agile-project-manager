@@ -96,7 +96,52 @@ export class TicketController {
 
   @Get('tickets/:id')
   @ApiOperation({ summary: 'Get full ticket details by ID' })
-  @ApiOkResponse({ description: 'Ticket details returned successfully.' })
+  @ApiOkResponse({
+    description: 'Ticket details returned successfully.',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: '550e8400-e29b-41d4-a716-446655440000',
+          projectId: '550e8400-e29b-41d4-a716-446655440001',
+          ticketKey: 'PROJ-1',
+          title: 'Implement login feature',
+          description: 'Add JWT-based authentication',
+          statusId: '550e8400-e29b-41d4-a716-446655440002',
+          priority: 'HIGH',
+          assignees: [
+            {
+              id: '550e8400-e29b-41d4-a716-446655440003',
+              name: 'John Doe',
+            },
+          ],
+          createdBy: {
+            id: '550e8400-e29b-41d4-a716-446655440003',
+            name: 'John Doe',
+          },
+          labels: [],
+          attachments: [
+            {
+              id: '550e8400-e29b-41d4-a716-446655440004',
+              fileUrl: '/uploads/design-mockup.png',
+              fileName: 'design-mockup.png',
+              fileSize: 245876,
+              uploadedBy: {
+                id: '550e8400-e29b-41d4-a716-446655440003',
+                name: 'John Doe',
+              },
+              createdAt: '2024-01-15T10:30:00Z',
+            },
+          ],
+          subtasks: [],
+          subtaskCompletion: {
+            total: 0,
+            completed: 0,
+          },
+        },
+      },
+    },
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiNotFoundResponse({ description: 'Ticket not found' })
   @ApiParam({ name: 'id', description: 'Ticket UUID' })

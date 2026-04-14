@@ -114,31 +114,47 @@ export class CommentService {
       where: { ticketId },
     });
 
-    // Get comments with user data, sorted ASC (oldest first)
-    const comments = await this.commentRepository.find({
-      where: { ticketId },
-      relations: ['user'],
-      select: {
-        id: true,
-        ticketId: true,
-        userId: true,
-        content: true,
-        createdAt: true,
-        updatedAt: true,
-        user: {
-          id: true,
-          name: true,
-        },
+    // Get comments with user and attachments data using query builder
+    const comments = await this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.user', 'user')
+      .leftJoinAndSelect('comment.attachments', 'attachments')
+      .leftJoinAndSelect('attachments.uploadedBy', 'uploadedByUser')
+      .where('comment.ticketId = :ticketId', { ticketId })
+      .orderBy('comment.createdAt', 'ASC')
+      .skip(skip)
+      .take(limit)
+      .getMany();
+
+    // Transform comments to include only needed fields and format attachments
+    const transformedComments = comments.map(comment => ({
+      id: comment.id,
+      ticketId: comment.ticketId,
+      userId: comment.userId,
+      content: comment.content,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      user: {
+        id: comment.user.id,
+        name: comment.user.name,
       },
-      order: { createdAt: 'ASC' },
-      skip,
-      take: limit,
-    });
+      attachments: (comment.attachments || []).map(att => ({
+        id: att.id,
+        fileUrl: att.fileUrl,
+        fileName: att.fileName,
+        fileSize: att.fileSize,
+        uploadedBy: {
+          id: att.uploadedBy.id,
+          name: att.uploadedBy.name,
+        },
+        createdAt: att.createdAt,
+      })),
+    }));
 
     return {
       success: true,
       data: {
-        items: comments,
+        items: transformedComments as any,
         total,
         page,
         limit,
