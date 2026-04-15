@@ -6,25 +6,25 @@ export type NotificationDocument = HydratedDocument<Notification>;
 @Schema({ timestamps: true })
 export class Notification {
   @Prop({ required: true, unique: true })
-  eventId: string;
+  eventId!: string;
 
   @Prop({ required: true, index: true })
-  userId: string;
+  userId!: string;
 
   @Prop({ required: true })
-  type: string;
+  type!: string;
 
   @Prop()
-  ticketId: string;
+  ticketId!: string;
 
   @Prop()
-  message: string;
+  message!: string;
 
   @Prop({ type: Object })
   metadata: any;
 
   @Prop({ default: false, index: true })
-  isRead: boolean;
+  isRead!: boolean;
 
   @Prop({ index: true })
   createdAt?: Date;

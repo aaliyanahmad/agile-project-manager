@@ -35,7 +35,8 @@ function parseServiceAccountCredentials(): any {
         return JSON.parse(unescapedCredsJson);
       }
     } catch (error) {
-      console.error('Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', errorMessage);
       return undefined;
     }
   }

@@ -77,8 +77,9 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
           );
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.warn(
-          `⚠ Could not verify Pub/Sub topic "${pubSubConfig.topicName}". Will attempt to publish anyway. Error: ${error.message}`,
+          `⚠ Could not verify Pub/Sub topic "${pubSubConfig.topicName}". Will attempt to publish anyway. Error: ${errorMessage}`,
         );
       }
 
@@ -88,8 +89,10 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
       );
     } catch (error) {
       // Log error but don't fail - allow graceful degradation
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : '';
       this.logger.warn(
-        `⚠ Pub/Sub initialization encountered an issue: ${error.message}. Events will not be published. Error: ${error.stack}`,
+        `⚠ Pub/Sub initialization encountered an issue: ${errorMessage}. Events will not be published. Error: ${errorStack}`,
       );
       this.isInitialized = false;
     }
@@ -123,9 +126,11 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
       );
     } catch (error) {
       // Log error but do not throw - keep API working
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : '';
       this.logger.error(
-        `Pub/Sub publish failed for event ${event.type}: ${error.message}`,
-        error.stack,
+        `Pub/Sub publish failed for event ${event.type}: ${errorMessage}`,
+        errorStack,
       );
       // Silently fail - do not break the API
     }
@@ -186,8 +191,9 @@ export class EventPublisherService implements OnModuleInit, OnModuleDestroy {
           );
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.warn(
-          `Failed to delete temporary credentials file: ${error.message}`,
+          `Failed to delete temporary credentials file: ${errorMessage}`,
         );
       }
     }
