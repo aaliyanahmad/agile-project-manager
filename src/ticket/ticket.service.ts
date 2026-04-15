@@ -196,103 +196,161 @@ export class TicketService {
     userId: string,
     dto: CreateTicketDto,
   ): Promise<{ success: true; data: Ticket }> {
-    // Validate project exists
-    const project = await this.projectRepository.findOne({
-      where: { id: projectId },
-    });
+    console.log('[TRACE] ========== CREATE TICKET START ==========');
+    console.log('[TRACE] projectId:', projectId, '| userId:', userId);
+    console.log('[TRACE] dto:', JSON.stringify(dto));
 
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
-
-    // Validate user belongs to project's workspace
-    await this.validateUserInWorkspace(userId, project.workspaceId);
-
-    // Validate assignees if provided and belong to workspace
-    let assignees = [] as User[];
-    if (dto.assigneeIds && dto.assigneeIds.length > 0) {
-      for (const assigneeId of dto.assigneeIds) {
-        await this.validateAssigneeInWorkspace(assigneeId, project.workspaceId);
-      }
-
-      assignees = await this.userRepository.find({
-        where: { id: In(dto.assigneeIds) },
+    try {
+      // Validate project exists
+      console.log('[TRACE] [1/12] Fetching project...');
+      const project = await this.projectRepository.findOne({
+        where: { id: projectId },
       });
 
-      if (assignees.length !== dto.assigneeIds.length) {
-        throw new BadRequestException('One or more assignees were not found');
+      if (!project) {
+        console.log('[ERROR] Project not found');
+        throw new NotFoundException('Project not found');
       }
-    }
+      console.log('[TRACE] [2/12] Project found: id=', project.id, 'name=', project.name);
 
-    // Get default status (TODO)
-    const todoStatus = await this.statusRepository.findOne({
-      where: { category: StatusCategory.TODO, projectId },
-    });
+      // Validate user belongs to project's workspace
+      console.log('[TRACE] [3/12] Validating user in workspace...');
+      await this.validateUserInWorkspace(userId, project.workspaceId);
+      console.log('[TRACE] [4/12] User validation PASSED');
 
-    if (!todoStatus) {
-      throw new BadRequestException('Default status (TODO) not configured');
-    }
+      // Validate assignees if provided and belong to workspace
+      let assignees = [] as User[];
+      if (dto.assigneeIds && dto.assigneeIds.length > 0) {
+        console.log('[TRACE] [5/12] Validating', dto.assigneeIds.length, 'assignees...');
+        for (const assigneeId of dto.assigneeIds) {
+          await this.validateAssigneeInWorkspace(assigneeId, project.workspaceId);
+        }
 
-    // Generate ticket key
-    const ticketKey = await this.generateTicketKey(projectId, project.key);
+        assignees = await this.userRepository.find({
+          where: { id: In(dto.assigneeIds) },
+        });
 
-    // Get max position in backlog - all new tickets start in backlog
-    const maxPositionResult = await this.ticketRepository
-      .createQueryBuilder('ticket')
-      .select('MAX(ticket.position)', 'max_position')
-      .where('ticket.projectId = :projectId', { projectId })
-      .andWhere('ticket.sprintId IS NULL')
-      .getRawOne();
+        if (assignees.length !== dto.assigneeIds.length) {
+          console.log('[ERROR] Assignee mismatch: found', assignees.length, 'expected', dto.assigneeIds.length);
+          throw new BadRequestException('One or more assignees were not found');
+        }
+        console.log('[TRACE] [6/12] Assignees validated, count:', assignees.length);
+      } else {
+        console.log('[TRACE] [5/12] No assignees provided (skipping)');
+      }
 
-    const maxPosition = maxPositionResult?.max_position ? Number(maxPositionResult.max_position) : 0;
-    const position = maxPosition + 1;
+      // Get default status (TODO)
+      console.log('[TRACE] [7/12] Fetching default TODO status...');
+      const todoStatus = await this.statusRepository.findOne({
+        where: { category: StatusCategory.TODO, projectId },
+      });
 
-    // Create ticket
-    const ticket = this.ticketRepository.create({
-      projectId,
-      ticketKey,
-      title: dto.title,
-      description: dto.description || null,
-      statusId: todoStatus.id,
-      priority: dto.priority || TicketPriority.MEDIUM,
-      sprintId: null,
-      position,
-      dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-      createdById: userId,
-      assignees,
-    });
+      if (!todoStatus) {
+        console.log('[ERROR] Default TODO status not found for project:', projectId);
+        throw new BadRequestException('Default status (TODO) not configured');
+      }
+      console.log('[TRACE] [8/12] TODO status found: id=', todoStatus.id, 'name=', todoStatus.name);
 
-    const savedTicket = await this.ticketRepository.save(ticket);
+      // Generate ticket key
+      console.log('[TRACE] [9/12] Generating ticket key (projectKey=', project.key, ')...');
+      const ticketKey = await this.generateTicketKey(projectId, project.key);
+      console.log('[TRACE] Ticket key generated:', ticketKey);
 
-    await this.activityService.log({
-      ticketId: savedTicket.id,
-      userId,
-      action: ActivityAction.TICKET_CREATED,
-      metadata: {},
-    });
+      // Get max position in backlog - all new tickets start in backlog
+      console.log('[TRACE] [10/12] Querying max position for backlog tickets...');
+      const maxPositionResult = await this.ticketRepository
+        .createQueryBuilder('ticket')
+        .select('COALESCE(MAX(ticket.position), 0)', 'max_position')
+        .where('ticket.projectId = :projectId', { projectId })
+        .andWhere('ticket.sprintId IS NULL')
+        .getRawOne();
 
-    // Publish event
-    const event = this.eventPublisherService.createEvent(
-      EventType.TICKET_CREATED,
-      {
-        ticketId: savedTicket.id,
+      console.log('[TRACE] Max position query result:', maxPositionResult);
+      const maxPosition = maxPositionResult?.max_position ? Number(maxPositionResult.max_position) : 0;
+      const position = maxPosition + 1;
+      console.log('[TRACE] Position calculated: new_position=', position);
+
+      // Create ticket (without assignees relation - handle separately)
+      console.log('[TRACE] [11/12] Creating ticket object...');
+      const ticket = this.ticketRepository.create({
         projectId,
-        performedBy: userId,
-        targetUsers: [userId],
-      },
-    );
-    await this.eventPublisherService.publish(event);
+        ticketKey,
+        title: dto.title,
+        description: dto.description || null,
+        statusId: todoStatus.id,
+        priority: dto.priority || TicketPriority.MEDIUM,
+        sprintId: null,
+        position,
+        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+        createdById: userId,
+      });
+      console.log('[TRACE] Ticket object prepared:', {
+        id: ticket.id,
+        ticketKey: ticket.ticketKey,
+        title: ticket.title,
+        statusId: ticket.statusId,
+        position: ticket.position,
+      });
 
-    // Return ticket with related data populated
-    const ticketWithRelations = await this.ticketRepository.findOne({
-      where: { id: savedTicket.id },
-      relations: ['status', 'project', 'createdBy', 'assignees', 'labels'],
-    });
+      console.log('[TRACE] [12/12] SAVING TICKET TO DATABASE...');
+      const savedTicket = await this.ticketRepository.save(ticket);
+      console.log('[TRACE] TICKET SAVED SUCCESSFULLY! id=', savedTicket.id);
 
-    return {
-      success: true,
-      data: ticketWithRelations!,
-    };
+      // Assign users AFTER ticket is saved
+      if (assignees.length > 0) {
+        console.log('[TRACE] Assigning', assignees.length, 'users to ticket...');
+        savedTicket.assignees = assignees;
+        console.log('[TRACE] Saving ticket with assignees...');
+        await this.ticketRepository.save(savedTicket);
+        console.log('[TRACE] Assignees saved successfully');
+      } else {
+        console.log('[TRACE] No assignees to assign');
+      }
+
+      console.log('[TRACE] Logging activity...');
+      await this.activityService.log({
+        ticketId: savedTicket.id,
+        userId,
+        action: ActivityAction.TICKET_CREATED,
+        metadata: {},
+      });
+      console.log('[TRACE] Activity logged');
+
+      // Publish event
+      console.log('[TRACE] Publishing event...');
+      const event = this.eventPublisherService.createEvent(
+        EventType.TICKET_CREATED,
+        {
+          ticketId: savedTicket.id,
+          projectId,
+          performedBy: userId,
+          targetUsers: [userId],
+        },
+      );
+      await this.eventPublisherService.publish(event);
+      console.log('[TRACE] Event published');
+
+      // Return ticket with related data populated
+      console.log('[TRACE] Fetching ticket with all relations...');
+      const ticketWithRelations = await this.ticketRepository.findOne({
+        where: { id: savedTicket.id },
+        relations: ['status', 'project', 'createdBy', 'assignees', 'labels'],
+      });
+      console.log('[TRACE] ========== CREATE TICKET SUCCESS ==========');
+
+      return {
+        success: true,
+        data: ticketWithRelations!,
+      };
+    } catch (error) {
+      console.error('[ERROR] ========== CREATE TICKET FAILED ==========');
+      console.error('[ERROR] Error type:', error?.constructor?.name);
+      console.error('[ERROR] Error message:', error instanceof Error ? error.message : String(error));
+      if (error instanceof Error) {
+        console.error('[ERROR] Stack:', error.stack);
+      }
+      throw error;
+    }
   }
 
   async getTickets(
@@ -1178,16 +1236,20 @@ export class TicketService {
   }
 
   private async generateTicketKey(projectId: string, projectKey: string): Promise<string> {
+    console.log('[TRACE-HELPER] generateTicketKey: projectId=', projectId, 'projectKey=', projectKey);
     // Count existing tickets for this project
     const count = await this.ticketRepository.count({
       where: { projectId },
     });
 
     const nextNumber = count + 1;
-    return `${projectKey}-${nextNumber}`;
+    const ticketKey = `${projectKey}-${nextNumber}`;
+    console.log('[TRACE-HELPER] generateTicketKey result:', ticketKey, '(count=', count, ')');
+    return ticketKey;
   }
 
   private async validateUserInWorkspace(userId: string, workspaceId: string): Promise<void> {
+    console.log('[TRACE-HELPER] validateUserInWorkspace: userId=', userId, 'workspaceId=', workspaceId);
     const membership = await this.workspaceMemberRepository.findOne({
       where: {
         userId,
@@ -1196,11 +1258,14 @@ export class TicketService {
     });
 
     if (!membership) {
+      console.log('[ERROR-HELPER] User not found in workspace');
       throw new ForbiddenException('Access denied: User does not belong to this workspace');
     }
+    console.log('[TRACE-HELPER] validateUserInWorkspace PASSED');
   }
 
   private async validateAssigneeInWorkspace(userId: string, workspaceId: string): Promise<void> {
+    console.log('[TRACE-HELPER] validateAssigneeInWorkspace: userId=', userId, 'workspaceId=', workspaceId);
     const membership = await this.workspaceMemberRepository.findOne({
       where: {
         userId,
@@ -1209,6 +1274,7 @@ export class TicketService {
     });
 
     if (!membership) {
+      console.log('[ERROR-HELPER] Assignee not found in workspace');
       throw new BadRequestException('Assignee must belong to the ticket project workspace');
     }
   }

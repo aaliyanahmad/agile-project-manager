@@ -38,6 +38,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { EventsModule } from './events/events.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     AttachmentsModule,
     EventsModule,
     NotificationsModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

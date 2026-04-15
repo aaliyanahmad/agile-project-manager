@@ -75,6 +75,9 @@ export class Ticket {
   @Column({ type: 'uuid', name: 'created_by' })
   createdById!: string;
 
+  @Column({ type: 'text', name: 'ai_user_story', nullable: true })
+  aiUserStory?: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

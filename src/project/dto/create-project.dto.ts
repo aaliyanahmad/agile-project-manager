@@ -10,4 +10,9 @@ export class CreateProjectDto {
   @MaxLength(100)
   @Transform(({ value }) => value?.trim())
   name!: string;
+
+  @ApiProperty({ description: 'Project description', example: 'A project to track sprints and tasks' })
+  @IsString()
+  @IsNotEmpty()
+  description!: string;
 }
