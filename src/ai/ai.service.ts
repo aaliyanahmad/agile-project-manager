@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -45,13 +49,16 @@ export class AiService {
         return JSON.parse(ticket.aiUserStory);
       } catch (error) {
         // If parsing fails, regenerate
-        console.warn(`Failed to parse cached aiUserStory for ticket ${ticketId}, regenerating...`);
+        console.warn(
+          `Failed to parse cached aiUserStory for ticket ${ticketId}, regenerating...`,
+        );
       }
     }
 
     // Extract context from relations
     const sprintGoal = this._getSprintContext(ticket.sprint);
-    const projectDescription = ticket.project?.description || 'No project description';
+    const projectDescription =
+      ticket.project?.description || 'No project description';
 
     // Build prompt
     const prompt = this._buildPrompt(ticket, sprintGoal, projectDescription);
@@ -86,7 +93,9 @@ export class AiService {
   /**
    * Fetch existing AI user story for a ticket
    */
-  async getUserStory(ticketId: string): Promise<UserStoryResponse | { message: string }> {
+  async getUserStory(
+    ticketId: string,
+  ): Promise<UserStoryResponse | { message: string }> {
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
     });
@@ -102,7 +111,10 @@ export class AiService {
     try {
       return JSON.parse(ticket.aiUserStory);
     } catch (error) {
-      console.error(`Failed to parse aiUserStory for ticket ${ticketId}:`, error);
+      console.error(
+        `Failed to parse aiUserStory for ticket ${ticketId}:`,
+        error,
+      );
       throw new BadRequestException('Invalid cached user story format');
     }
   }
@@ -120,7 +132,11 @@ export class AiService {
   /**
    * Build structured prompt for Gemini
    */
-  private _buildPrompt(ticket: Ticket, sprintGoal: string, projectDescription: string): string {
+  private _buildPrompt(
+    ticket: Ticket,
+    sprintGoal: string,
+    projectDescription: string,
+  ): string {
     return `You are an expert Agile product manager. Generate a detailed user story based on the following context:
 
 Project: ${projectDescription}
@@ -147,9 +163,13 @@ You MUST return ONLY valid JSON with this exact structure. No explanation, no ma
 
     // Remove markdown code blocks if present
     if (cleanedResponse.startsWith('```json')) {
-      cleanedResponse = cleanedResponse.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+      cleanedResponse = cleanedResponse
+        .replace(/^```json\n?/, '')
+        .replace(/\n?```$/, '');
     } else if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/^```\n?/, '').replace(/\n?```$/, '');
+      cleanedResponse = cleanedResponse
+        .replace(/^```\n?/, '')
+        .replace(/\n?```$/, '');
     }
 
     let parsed: unknown;
@@ -182,11 +202,15 @@ You MUST return ONLY valid JSON with this exact structure. No explanation, no ma
 
     // Validate array contents
     if (!data.acceptanceCriteria.every((item) => typeof item === 'string')) {
-      throw new BadRequestException('acceptanceCriteria must be an array of strings');
+      throw new BadRequestException(
+        'acceptanceCriteria must be an array of strings',
+      );
     }
 
     if (!data.technicalNotes.every((item) => typeof item === 'string')) {
-      throw new BadRequestException('technicalNotes must be an array of strings');
+      throw new BadRequestException(
+        'technicalNotes must be an array of strings',
+      );
     }
 
     return {
@@ -196,4 +220,3 @@ You MUST return ONLY valid JSON with this exact structure. No explanation, no ma
     };
   }
 }
- 
