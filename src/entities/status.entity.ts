@@ -1,5 +1,6 @@
 import {
   Column,
+  CreateDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -29,6 +30,9 @@ export class Status {
 
   @Column({ type: 'numeric' })
   position!: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 
   @ManyToOne(() => Project, {
     nullable: false,

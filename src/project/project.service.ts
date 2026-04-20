@@ -43,6 +43,7 @@ export class ProjectService {
       workspaceId,
       name: trimmedName,
       key,
+      description: dto.description,
     });
 
     try {
@@ -54,7 +55,7 @@ export class ProjectService {
       };
     } catch (error) {
       // Handle unique constraint violation (race condition)
-      if (error.code === '23505') { // PostgreSQL unique violation
+      if (error instanceof Object && 'code' in error && error.code === '23505') { // PostgreSQL unique violation
         throw new BadRequestException('Project with this name already exists in this workspace');
       }
       throw error;
@@ -66,27 +67,24 @@ export class ProjectService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Project>> {
     const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 5);
+    const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
     const [projects, total] = await this.projectRepository.findAndCount({
       where: { workspaceId },
       order: { createdAt: 'DESC' },
-      select: ['id', 'name', 'key', 'createdAt'],
+      select: ['id', 'name', 'key', 'description', 'createdAt'],
       skip,
       take: limit,
     });
 
-    const totalPages = Math.ceil(total / limit);
-
     return {
       success: true,
-      data: projects,
-      meta: {
+      data: {
+        items: projects,
         total,
         page,
         limit,
-        totalPages,
       },
     };
   }

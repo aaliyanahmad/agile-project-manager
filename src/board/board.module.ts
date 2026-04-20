@@ -7,9 +7,13 @@ import { Project } from '../entities/project.entity';
 import { Status } from '../entities/status.entity';
 import { WorkspaceMember } from '../entities/workspace-member.entity';
 import { User } from '../entities/user.entity';
+import { ActivityModule } from '../activity/activity.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Ticket, Project, Status, WorkspaceMember, User])],
+  imports: [
+    TypeOrmModule.forFeature([Ticket, Project, Status, WorkspaceMember, User]),
+    ActivityModule,
+  ],
   controllers: [BoardController],
   providers: [BoardService],
 })

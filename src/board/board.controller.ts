@@ -42,7 +42,7 @@ export class BoardController {
   @ApiParam({ name: 'projectId', description: 'Project UUID' })
   @ApiQuery({ name: 'sprintId', required: false, description: 'Sprint UUID to filter board by sprint' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 50)' })
   async getBoard(
     @Param('projectId') projectId: string,
     @Query('sprintId') sprintId: string,
@@ -67,7 +67,7 @@ export class BoardController {
   ) {
     return {
       success: true,
-      data: await this.boardService.updateTicketStatus(ticketId, dto.status, user.id),
+      data: await this.boardService.updateTicketStatus(ticketId, dto.statusId, user.id),
     };
   }
 }

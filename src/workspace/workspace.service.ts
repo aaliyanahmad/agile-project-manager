@@ -64,7 +64,7 @@ export class WorkspaceService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<{ id: string; name: string; role: WorkspaceMemberRole; createdAt: Date }>> {
     const page = pagination.page || 1;
-    const limit = Math.min(pagination.limit || 5, 5);
+    const limit = Math.min(pagination.limit || 5, 50);
     const skip = (page - 1) * limit;
 
     const [members, total] = await this.workspaceMemberRepository.findAndCount({
@@ -82,16 +82,13 @@ export class WorkspaceService {
       createdAt: member.workspace.createdAt,
     }));
 
-    const totalPages = Math.ceil(total / limit);
-
     return {
       success: true,
-      data: workspaces,
-      meta: {
+      data: {
+        items: workspaces,
         total,
         page,
         limit,
-        totalPages,
       },
     };
   }

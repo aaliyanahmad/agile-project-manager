@@ -25,6 +25,9 @@ export class Project {
   @Column({ type: 'uuid', name: 'workspace_id' })
   workspaceId!: string;
 
+  @Column({ type: 'text', name: 'description'})
+  description!: string;
+
   @ManyToOne(() => Workspace, (workspace) => workspace.projects, {
     nullable: false,
     onDelete: 'CASCADE',

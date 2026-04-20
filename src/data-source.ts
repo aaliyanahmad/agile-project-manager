@@ -12,8 +12,7 @@ import { Label } from './entities/label.entity';
 import { TicketLabels } from './entities/ticket-labels.entity';
 import { TicketAssignees } from './entities/ticket-assignees.entity';
 import { Attachment } from './entities/attachment.entity';
-import { GitLink } from './entities/git-link.entity';
-import { Notification } from './entities/notification.entity';
+import { ProcessedEvent } from './events/entities/processed-event.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -22,7 +21,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'admin',
   password: process.env.DB_PASSWORD || 'admin',
   database: process.env.DB_DATABASE || 'db_postgres',
-  entities: [User, Workspace, WorkspaceMember, Project, Sprint, Ticket, Comment, ActivityLog, Status, Label, TicketLabels, TicketAssignees, Attachment, GitLink, Notification],
+  entities: [User, Workspace, WorkspaceMember, Project, Sprint, Ticket, Comment, ActivityLog, Status, Label, TicketLabels, TicketAssignees, Attachment, ProcessedEvent],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: false,

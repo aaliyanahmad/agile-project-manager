@@ -46,7 +46,7 @@ export class ProjectController {
   @ApiResponse({ status: 200, description: 'Project list returned successfully.' })
   @ApiParam({ name: 'workspaceId', description: 'Workspace UUID' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 5)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 50)' })
   async getProjectsInWorkspace(
     @Param('workspaceId') workspaceId: string,
     @Query() pagination: PaginationDto,

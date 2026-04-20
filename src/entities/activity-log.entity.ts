@@ -13,6 +13,7 @@ import { User } from './user.entity';
 
 @Entity({ name: 'activity_logs' })
 @Index('idx_activity_log_ticket_id', ['ticketId'])
+@Index('idx_activity_log_created_at', ['createdAt'])
 @Index('idx_activity_log_user_id', ['userId'])
 export class ActivityLog {
   @PrimaryGeneratedColumn('uuid')
@@ -27,8 +28,8 @@ export class ActivityLog {
   @Column({ type: 'enum', enum: ActivityAction })
   action!: ActivityAction;
 
-  @Column({ type: 'jsonb' })
-  metadata!: Record<string, unknown>;
+  @Column({ type: 'jsonb', nullable: true })
+  metadata!: Record<string, unknown> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

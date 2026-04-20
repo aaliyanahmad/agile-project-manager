@@ -21,7 +21,7 @@ import { Status } from './status.entity';
 import { TicketLabels } from './ticket-labels.entity';
 import { TicketAssignees } from './ticket-assignees.entity';
 import { Attachment } from './attachment.entity';
-import { GitLink } from './git-link.entity';
+import { Label } from './label.entity';
 
 @Entity({ name: 'tickets' })
 @Index('idx_ticket_project_id', ['projectId'])
@@ -34,6 +34,7 @@ import { GitLink } from './git-link.entity';
 @Index('idx_ticket_title', ['title'])
 @Index('idx_ticket_ticket_key', ['ticketKey'])
 @Index('idx_ticket_description', ['description'])
+@Index('idx_ticket_project_status_priority', ['projectId', 'statusId', 'priority'])
 export class Ticket {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -73,6 +74,9 @@ export class Ticket {
 
   @Column({ type: 'uuid', name: 'created_by' })
   createdById!: string;
+
+  @Column({ type: 'text', name: 'ai_user_story', nullable: true })
+  aiUserStory?: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
@@ -116,6 +120,14 @@ export class Ticket {
   })
   assignees!: User[];
 
+  @ManyToMany(() => Label, (label) => label.tickets)
+  @JoinTable({
+    name: 'ticket_labels',
+    joinColumn: { name: 'ticket_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'label_id', referencedColumnName: 'id' },
+  })
+  labels!: Label[];
+
   @ManyToOne(() => Ticket, (ticket) => ticket.children, {
     nullable: true,
     onDelete: 'SET NULL',
@@ -134,9 +146,6 @@ export class Ticket {
 
   @OneToMany(() => Attachment, (attachment) => attachment.ticket)
   attachments!: Attachment[];
-
-  @OneToMany(() => GitLink, (gitLink) => gitLink.ticket)
-  gitLinks!: GitLink[];
 
   @OneToMany(() => Comment, (comment) => comment.ticket)
   comments!: Comment[];
