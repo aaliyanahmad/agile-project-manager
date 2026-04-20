@@ -10,5 +10,6 @@ import { Ticket } from '../entities/ticket.entity';
   ],
   controllers: [SearchController],
   providers: [SearchService],
+  exports: [SearchService],
 })
 export class SearchModule {}

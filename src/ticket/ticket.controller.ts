@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
   ValidationPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -36,13 +37,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { User } from '../entities/user.entity';
+import { SearchService } from '../search/search.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
 @ApiTags('Tickets')
 @ApiBearerAuth()
 export class TicketController {
-  constructor(private readonly ticketService: TicketService) {}
+  constructor(
+    private readonly ticketService: TicketService,
+    private readonly searchService: SearchService,
+  ) {}
   @Post('tickets/:parentId/subtasks')
   @ApiOperation({ summary: 'Create a subtask for a ticket' })
   @ApiResponse({ status: 201, description: 'Subtask created successfully.' })
@@ -327,6 +332,83 @@ export class TicketController {
     return {
       success: true,
       message: 'Ticket deleted successfully',
+    };
+  }
+
+  @Get('tickets/search')
+  @ApiOperation({
+    summary: 'Full-text search across all tickets',
+    description:
+      'Searches across ticket title, description, creator name, and assignee names using PostgreSQL full-text search. Results include highlighting of matching terms and are ranked by relevance.',
+  })
+  @ApiQuery({
+    name: 'q',
+    required: true,
+    description: 'Search query string',
+    example: 'login bug',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of results to return (1-50, default 10)',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    description: 'Number of results to skip for pagination (default 0)',
+    example: 0,
+  })
+  @ApiOkResponse({
+    description: 'Search results with highlighting and ranking',
+    schema: {
+      example: {
+        results: [
+          {
+            ticket_id: 'uuid',
+            project_id: 'uuid',
+            status_id: 'uuid',
+            priority: 'HIGH',
+            highlighted_title: 'Fix <b>login</b> <b>bug</b>',
+            highlighted_description: 'Users cannot <b>login</b> to dashboard',
+            creator: { id: 'uuid', name: 'John Doe' },
+            assignees: [{ id: 'uuid', name: 'Jane Smith' }],
+            rank: 0.89,
+          },
+        ],
+      },
+    },
+  })
+  async searchTickets(
+    @Query('q') query?: string,
+    @Query('limit') limit: number = 10,
+    @Query('offset') offset: number = 0,
+  ) {
+    // Validate query parameter
+    if (!query || typeof query !== 'string') {
+      throw new BadRequestException('Search query (q) is required and must be a string');
+    }
+
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      throw new BadRequestException('Search query cannot be empty');
+    }
+
+    // Ensure limit and offset are valid numbers
+    const safeLimit = Number.isFinite(limit) ? Number(limit) : 10;
+    const safeOffset = Number.isFinite(offset) ? Number(offset) : 0;
+
+    // Call the search service
+    const results = await this.searchService.fullTextSearchTickets(trimmedQuery, safeLimit, safeOffset);
+
+    return {
+      query: trimmedQuery,
+      pagination: {
+        limit: safeLimit,
+        offset: safeOffset,
+        count: results.length,
+      },
+      results,
     };
   }
 }

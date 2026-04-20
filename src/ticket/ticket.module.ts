@@ -11,12 +11,14 @@ import { TicketController } from './ticket.controller';
 import { TicketService } from './ticket.service';
 import { ActivityModule } from '../activity/activity.module';
 import { EventsModule } from '../events/events.module';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Ticket, Project, Sprint, Status, WorkspaceMember, User, Label]),
     ActivityModule,
     EventsModule,
+    SearchModule,
   ],
   controllers: [TicketController],
   providers: [TicketService],
